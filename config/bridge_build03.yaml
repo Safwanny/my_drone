@@ -1,5 +1,4 @@
-# ROS 2 <-> Gazebo topic bridge for build03. bridge_<drone>.yaml files differ only
-# in the model name.
+# ROS 2 <-> Gazebo topic bridge for build03.
 #
 # Note the asymmetry in naming: Gazebo's MulticopterVelocityControl plugin
 # expects a gz.msgs.Twist on <robotNamespace>/<commandSubTopic>, which is
@@ -15,6 +14,15 @@
   gz_topic_name: "/build03/enable"
   ros_type_name: "std_msgs/msg/Bool"
   gz_type_name: "gz.msgs.Boolean"
+  direction: ROS_TO_GZ
+
+# Rotor speeds (rad/s) from our flight_controller to the four
+# MulticopterMotorModel plugins, indexed by motorNumber. Unused (no
+# publisher) when the sim runs with controller:=gz.
+- ros_topic_name: "/motor_speed"
+  gz_topic_name: "/build03/gazebo/command/motor_speed"
+  ros_type_name: "actuator_msgs/msg/Actuators"
+  gz_type_name: "gz.msgs.Actuators"
   direction: ROS_TO_GZ
 
 - ros_topic_name: "/imu"

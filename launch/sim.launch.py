@@ -1,14 +1,13 @@
-"""Launch a quad (Build 03 or JeNo 7) in Gazebo Harmonic, bridged to ROS 2.
+"""Launch Build 03 in Gazebo Harmonic, bridged to ROS 2.
 
 Brings up gz sim with the flight world, robot_state_publisher fed from the
-xacro, the model spawn, the ROS<->GZ bridge and RViz. The drone spawns
-disarmed (props still); arrow_teleop arms it on start and lands + disarms
-it on quit.
+xacro, the model spawn, the ROS<->GZ bridge, our flight_controller and RViz.
+The drone spawns disarmed (props still); arrow_teleop arms it on start and
+lands + disarms it on quit, goto.py arms it and flies waypoints.
 
     ros2 launch my_drone sim.launch.py
     ros2 launch my_drone sim.launch.py rviz:=false
-    ros2 launch my_drone sim.launch.py drone:=build03
-    ros2 launch my_drone sim.launch.py drone:=jeno7
+    ros2 launch my_drone sim.launch.py controller:=gz   # Gazebo's built-in one
 
 Teleop is NOT launched here: reading the keyboard needs a real TTY, which a
 launch-spawned process does not get. Run it yourself in a second terminal:
@@ -38,6 +37,7 @@ from launch.substitutions import (
     Command,
     LaunchConfiguration,
     PathJoinSubstitution,
+    PythonExpression,
 )
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
@@ -98,19 +98,21 @@ def kill_stragglers(context, when):
 def generate_launch_description():
     pkg = get_package_share_directory("my_drone")
 
-    drone = LaunchConfiguration("drone")
+    drone = "build03"  # names urdf/<drone>.urdf.xacro, the bridge config and the gz model
     world = LaunchConfiguration("world")
     use_rviz = LaunchConfiguration("rviz")
     headless = LaunchConfiguration("headless")
     spawn_z = LaunchConfiguration("z")
+    controller = LaunchConfiguration("controller")
 
     args = [
         DeclareLaunchArgument(
-            "drone",
-            default_value="build03",
-            choices=["build03", "jeno7"],
-            description="Which quad: picks urdf/<drone>.urdf.xacro and "
-            "config/bridge_<drone>.yaml, and names the gz model.",
+            "controller",
+            default_value="custom",
+            choices=["custom", "gz"],
+            description="custom: our flight_controller node (position, "
+            "velocity, attitude, rate, mixer). gz: Gazebo's built-in "
+            "MulticopterVelocityControl (velocity only, no /goal_pose).",
         ),
         DeclareLaunchArgument(
             "world",
@@ -142,6 +144,8 @@ def generate_launch_description():
                 PathJoinSubstitution(
                     [FindPackageShare("my_drone"), "urdf", [drone, ".urdf.xacro"]]
                 ),
+                " controller:=",
+                controller,
             ]
         ),
         value_type=str,
@@ -208,6 +212,17 @@ def generate_launch_description():
         ],
     )
 
+    flight_controller = Node(
+        condition=IfCondition(PythonExpression(["'", controller, "' == 'custom'"])),
+        package="my_drone",
+        executable="flight_controller",
+        output="screen",
+        parameters=[
+            os.path.join(pkg, "config", "controller.yaml"),
+            {"robot_description": robot_description, "use_sim_time": True},
+        ],
+    )
+
     rviz = Node(
         condition=IfCondition(use_rviz),
         package="rviz2",
@@ -230,5 +245,6 @@ def generate_launch_description():
     return LaunchDescription(
         args
         + [clean_start, tag, clean_exit, mesh_path]
-        + [gz_server, gz_gui, robot_state_publisher, bridge, spawn, rviz]
+        + [gz_server, gz_gui, robot_state_publisher, bridge, spawn,
+           flight_controller, rviz]
     )

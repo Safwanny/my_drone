@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Arrow-key teleop for the drones in this package.
 
-Publishes geometry_msgs/Twist on /cmd_vel in the vehicle body frame, which
-is what Gazebo's MulticopterVelocityControl consumes:
+Publishes geometry_msgs/Twist on /cmd_vel in the vehicle's heading frame,
+which flight_controller (or Gazebo's MulticopterVelocityControl, with
+controller:=gz) flies as a velocity setpoint:
 
     linear.x   forward / back velocity   (m/s)
     linear.y   left / right velocity     (m/s)
