@@ -1,8 +1,9 @@
 """Launch a quad (Build 03 or JeNo 7) in Gazebo Harmonic, bridged to ROS 2.
 
-Brings up, in order: gz sim with the flight world, robot_state_publisher
-fed from the xacro, the model spawn, the ROS<->GZ bridge, and finally an
-auto-enable publisher that arms the built-in velocity controller.
+Brings up gz sim with the flight world, robot_state_publisher fed from the
+xacro, the model spawn, the ROS<->GZ bridge and RViz. The drone spawns
+disarmed (props still); arrow_teleop arms it on start and lands + disarms
+it on quit.
 
     ros2 launch my_drone sim.launch.py
     ros2 launch my_drone sim.launch.py rviz:=false
@@ -30,10 +31,9 @@ from launch.actions import (
     RegisterEventHandler,
     SetEnvironmentVariable,
     Shutdown,
-    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit, OnShutdown
+from launch.event_handlers import OnShutdown
 from launch.substitutions import (
     Command,
     LaunchConfiguration,
@@ -208,29 +208,6 @@ def generate_launch_description():
         ],
     )
 
-    # The velocity controller ignores every Twist until it is enabled, so
-    # arm it once the model is actually in the world. The short delay lets
-    # the plugin finish subscribing before the latched message goes out.
-    auto_enable = RegisterEventHandler(
-        OnProcessExit(
-            target_action=spawn,
-            on_exit=[
-                TimerAction(
-                    period=3.0,
-                    actions=[
-                        ExecuteProcess(
-                            cmd=[
-                                "ros2", "topic", "pub", "--once", "/enable",
-                                "std_msgs/msg/Bool", "{data: true}",
-                            ],
-                            output="screen",
-                        )
-                    ],
-                )
-            ],
-        )
-    )
-
     rviz = Node(
         condition=IfCondition(use_rviz),
         package="rviz2",
@@ -253,5 +230,5 @@ def generate_launch_description():
     return LaunchDescription(
         args
         + [clean_start, tag, clean_exit, mesh_path]
-        + [gz_server, gz_gui, robot_state_publisher, bridge, spawn, auto_enable, rviz]
+        + [gz_server, gz_gui, robot_state_publisher, bridge, spawn, rviz]
     )
