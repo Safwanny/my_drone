@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Mass budget -> xacro numbers for build03 and jeno7.
+"""Mass budget -> xacro numbers for build03.
 
 Printed frame parts get mass from mesh volume x density x infill; bought
 parts (motors, props, battery, electronics) get researched/assumed masses.
 Inertia is integrated over the real meshes. Edit the tables below once the
 real parts are weighed, re-run, and paste the output into
-urdf/<drone>_params.xacro.
+urdf/build03_params.xacro.
 
-    python3 tools/mass_budget.py            # all drones
-    python3 tools/mass_budget.py jeno7      # one drone
+    python3 tools/mass_budget.py
 
 Reads the CAD folders directly (not installed with the package).
 """
 import glob
 import os
-import sys
 
 import numpy as np
 
@@ -22,8 +20,6 @@ FRAMES = os.environ.get("DRONE_FRAMES", "/media/safwan/Shared/Drone_Frames")
 
 # ---- materials (kg/m^3) ----
 PAHT_CF = 1060   # Bambu PAHT-CF TDS
-TPU = 1210
-ALU = 2700
 
 # ---- bought parts (kg) ----
 MOTOR = 0.055        # 2807 1300KV incl. 200 mm 18AWG leads (DarwinFPV 55.7 g)
@@ -91,29 +87,6 @@ def build03():
     return items, np.eye(3), motors, 66.7, 40.0
 
 
-def jeno7():
-    p = f"{FRAMES}/WEAREFPV_Jeno_7/parts/"
-    items = []
-    for f in sorted(glob.glob(p + "frame/*.stl")):
-        n = os.path.basename(f)
-        if "standoff" in n:
-            items.append(mesh_item(f, ALU))
-        elif "antenna" in n or "bumper" in n:
-            items.append(mesh_item(f, TPU, 0.6))
-        else:
-            items.append(mesh_item(f, PAHT_CF))      # 2-8 mm plates/arms, 100%
-    items += [mesh_item(f, mass=MOTOR) for f in sorted(glob.glob(p + "motors/*.stl"))]
-    motors = [(-119.6, 107.8), (119.6, 107.8), (-119.6, -76.9), (119.6, -76.9)]
-    items += [box_item("prop+nut", PROP_NUT, (x, y, 47), (0, 0, 0)) for x, y in motors]
-    items += [box_item("battery", BATTERY, (0, 7, 63), (35, 88, 46)),          # on top plate
-              box_item("stack", STACK, (0, 15, 22), (36, 36, 15)),
-              box_item("avionics", AVIONICS, (0, 40, 28), (40, 120, 20)),
-              box_item("wiring", WIRING, (0, 15, 25), (60, 120, 20)),
-              box_item("screws", 0.020, (0, 15, 20), (150, 200, 20))]
-    # CAD front is +Y: yaw -90 deg maps CAD (x, y) -> ROS (y, -x)
-    return items, np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]]), motors, 42.4, 15.7
-
-
 def report(name, items, R, motors, hub_z_mm, motor_base_mm):
     m, com, I = total(items)
     Ir = R @ I @ R.T
@@ -134,6 +107,4 @@ def report(name, items, R, motors, hub_z_mm, motor_base_mm):
 
 
 if __name__ == "__main__":
-    drones = {"build03": build03, "jeno7": jeno7}
-    for name in sys.argv[1:] or drones:
-        report(name, *drones[name]())
+    report("build03", *build03())
