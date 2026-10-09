@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  Custom Drone Build 03: 404 mm true-X, PAHT-CF printed frame, 2807SL +
+  7040x3 on 6S. Mass and inertia from tools/mass_budget.py (printed parts by
+  mesh volume, bought parts by researched weight). Re-run it once the real
+  parts are weighed and paste the numbers here.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================== MASS BUDGET (kg) ==================== -->
+  <!-- Base 102 + chassis 48 + 4 arms 82 + 4 pillars 12  = 244 g (PAHT-CF) -->
+  <!-- 4 x 2807 motor incl. leads                     = 220 g -->
+  <!-- 4 x (7040x3 prop + M5 nut)                     =  46 g -->
+  <!-- 6S 1800 mAh LiPo                               = 290 g -->
+  <!-- FC+ESC 35, RX/GPS/VTX/cam 40, wiring 30, screws 25 = 130 g -->
+  <!--                                     All-up:   ~= 931 g -->
+  <xacro:property name="mass_total" value="0.931"/>
+  <xacro:property name="mass_base"  value="${mass_total - 4*mass_rotor}"/>
+
+  <!-- About the CoM, which is base_link's origin (49.3 mm above the
+       bottom of the base plate). -->
+  <xacro:property name="body_ixx" value="0.00711"/>
+  <xacro:property name="body_iyy" value="0.00754"/>
+  <xacro:property name="body_izz" value="0.01362"/>
+
+  <!-- ==================== GEOMETRY (m, from the CoM) ==================== -->
+  <!-- CAD is front +X, Z up, so meshes only shift down by the CoM height. -->
+  <xacro:property name="cad_offset"    value="0 0 -0.0493"/>
+  <xacro:property name="rotor_x_front" value=" 0.143"/>
+  <xacro:property name="rotor_x_rear"  value="-0.143"/>
+  <xacro:property name="rotor_y"       value=" 0.143"/>
+  <xacro:property name="rotor_z"       value=" 0.0174"/>   <!-- prop hub bottom -->
+  <xacro:property name="motor_base_z"  value="-0.0093"/>
+
+  <!-- ==================== VELOCITY CONTROLLER ====================
+       gz divides attitude/rate gains by inertia and velocity gain by mass,
+       so these are the F450 gains scaled by I_build03/I_f450 per axis
+       (0.73, 0.77, 0.71) and m_build03/m_f450 (1.03): same response. -->
+  <xacro:property name="velocity_gain"     value="2.79 2.79 2.79"/>
+  <xacro:property name="attitude_gain"     value="1.45 1.54 0.106"/>
+  <xacro:property name="angular_rate_gain" value="0.29 0.31 0.128"/>
+  <xacro:property name="max_linear_accel"  value="3 3 3"/>
+  <xacro:property name="max_linear_vel"    value="5 5 3"/>
+  <xacro:property name="max_angular_vel"   value="3 3 2"/>
+
+  <xacro:property name="robot_ns" value="build03"/>
+
+</robot>

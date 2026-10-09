@@ -1,0 +1,10 @@
+# colcon output, if anyone builds from inside the package
+build/
+install/
+log/
+
+__pycache__/
+*.pyc
+
+# Claude Code session memory
+.remember/

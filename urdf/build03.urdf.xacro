@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<!--
+  Custom Drone Build 03, true X, nose +x. Frame meshes are the CAD parts in
+  assembled position (mm); base_link sits at the vehicle CoM.
+  Rotor numbering and spin: see quad_mesh_common.xacro.
+-->
+<robot name="build03" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find my_drone)/urdf/quad_mesh_common.xacro"/>
+  <xacro:include filename="$(find my_drone)/urdf/build03_params.xacro"/>
+  <xacro:include filename="$(find my_drone)/urdf/f450_gazebo.xacro"/>
+
+  <material name="frame_grey"><color rgba="0.22 0.22 0.25 1.0"/></material>
+
+  <xacro:macro name="frame_part" params="file">
+    <visual>
+      <origin xyz="${cad_offset}" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://my_drone/meshes/build03/${file}.stl" scale="${mesh_scale}"/>
+      </geometry>
+      <material name="frame_grey"/>
+    </visual>
+  </xacro:macro>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="${mass_base}"/>
+      <inertia ixx="${body_ixx}" ixy="0.0" ixz="0.0"
+               iyy="${body_iyy}" iyz="0.0"
+               izz="${body_izz}"/>
+    </inertial>
+
+    <xacro:frame_part file="Base"/>
+    <xacro:frame_part file="Chassis_with_pillar_pads"/>
+    <xacro:frame_part file="Arm_plate_1"/>
+    <xacro:frame_part file="Arm_plate_2"/>
+    <xacro:frame_part file="Arm_plate_3"/>
+    <xacro:frame_part file="Arm_plate_4"/>
+    <xacro:frame_part file="Pillar_30mm_1"/>
+    <xacro:frame_part file="Pillar_30mm_2"/>
+    <xacro:frame_part file="Pillar_30mm_3"/>
+    <xacro:frame_part file="Pillar_30mm_4"/>
+    <xacro:quad_motor_visuals/>
+
+    <!-- Base plate: what it lands on (CAD z 0-6 mm). -->
+    <collision>
+      <origin xyz="0 0 -0.0463" rpy="0 0 0"/>
+      <geometry><box size="0.224 0.127 0.006"/></geometry>
+    </collision>
+    <!-- Arm plates + chassis (CAD z 36-47 mm). -->
+    <collision>
+      <origin xyz="0 0 -0.0078" rpy="0 0 0"/>
+      <geometry><box size="0.126 0.126 0.011"/></geometry>
+    </collision>
+  </link>
+
+  <xacro:quad_rotors/>
+
+  <xacro:f450_gazebo_plugins/>
+
+</robot>

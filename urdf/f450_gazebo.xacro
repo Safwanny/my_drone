@@ -1,0 +1,138 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo Harmonic (gz-sim 8) plugin blocks, shared by every quad in this
+  package (f450, build03, jeno7). All numbers come from <drone>_params.xacro.
+
+  Two layers are declared here:
+
+    1. MulticopterMotorModel  x4 - turns a commanded rotor velocity into
+       thrust and drag torque. This is the "ESC + motor + prop" model.
+
+    2. MulticopterVelocityControl x1 - a built-in attitude + velocity
+       controller that consumes a Twist and drives the four motors above.
+       This is what lets the drone fly before any control code is written.
+       Phase 5 replaces this one plugin with our own PID node; the motor
+       models stay exactly as they are.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ============ Motor model, instantiated once per rotor ============ -->
+  <xacro:macro name="motor_plugin" params="number direction">
+    <gazebo>
+      <plugin filename="gz-sim-multicopter-motor-model-system"
+              name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>${robot_ns}</robotNamespace>
+        <jointName>rotor_${number}_joint</jointName>
+        <linkName>rotor_${number}</linkName>
+        <turningDirection>${direction}</turningDirection>
+        <timeConstantUp>${time_constant_up}</timeConstantUp>
+        <timeConstantDown>${time_constant_down}</timeConstantDown>
+        <maxRotVelocity>${max_rot_velocity}</maxRotVelocity>
+        <motorConstant>${motor_constant}</motorConstant>
+        <momentConstant>${moment_constant}</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <motorNumber>${number}</motorNumber>
+        <rotorDragCoefficient>${rotor_drag_coeff}</rotorDragCoefficient>
+        <rollingMomentCoefficient>${rolling_moment_coeff}</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/${number}</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>${rotor_slowdown_sim}</rotorVelocitySlowdownSim>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- direction 1 == ccw, -1 == cw, and must agree with turningDirection above.
+       Diagonally opposite rotors share a direction so yaw torque cancels. -->
+  <xacro:macro name="rotor_config_entry" params="number dir">
+    <rotor>
+      <jointName>rotor_${number}_joint</jointName>
+      <forceConstant>${motor_constant}</forceConstant>
+      <momentConstant>${moment_constant}</momentConstant>
+      <direction>${dir}</direction>
+    </rotor>
+  </xacro:macro>
+
+  <xacro:macro name="f450_gazebo_plugins" params="">
+
+    <xacro:motor_plugin number="0" direction="ccw"/>
+    <xacro:motor_plugin number="1" direction="ccw"/>
+    <xacro:motor_plugin number="2" direction="cw"/>
+    <xacro:motor_plugin number="3" direction="cw"/>
+
+    <!-- ============ Built-in velocity / attitude controller ============
+         Gains and limits come from <drone>_params.xacro. They are the
+         numbers most likely to need a tuning pass if the drone feels
+         sluggish (raise) or oscillates (lower).
+         Subscribes on:  /${robot_ns}/gazebo/command/twist
+         Enable on:      /${robot_ns}/enable                             -->
+    <gazebo>
+      <plugin filename="gz-sim-multicopter-control-system"
+              name="gz::sim::systems::MulticopterVelocityControl">
+        <robotNamespace>${robot_ns}</robotNamespace>
+        <commandSubTopic>gazebo/command/twist</commandSubTopic>
+        <enableSubTopic>enable</enableSubTopic>
+        <comLinkName>base_link</comLinkName>
+
+        <velocityGain>${velocity_gain}</velocityGain>
+        <attitudeGain>${attitude_gain}</attitudeGain>
+        <angularRateGain>${angular_rate_gain}</angularRateGain>
+
+        <maximumLinearAcceleration>${max_linear_accel}</maximumLinearAcceleration>
+        <maximumLinearVelocity>${max_linear_vel}</maximumLinearVelocity>
+        <maximumAngularVelocity>${max_angular_vel}</maximumAngularVelocity>
+
+        <rotorConfiguration>
+          <xacro:rotor_config_entry number="0" dir="1"/>
+          <xacro:rotor_config_entry number="1" dir="1"/>
+          <xacro:rotor_config_entry number="2" dir="-1"/>
+          <xacro:rotor_config_entry number="3" dir="-1"/>
+        </rotorConfiguration>
+      </plugin>
+    </gazebo>
+
+    <!-- ============ Odometry, for RViz and for later navigation ============ -->
+    <gazebo>
+      <plugin filename="gz-sim-odometry-publisher-system"
+              name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <dimensions>3</dimensions>
+        <odom_publish_frequency>50</odom_publish_frequency>
+      </plugin>
+    </gazebo>
+
+    <!-- ============ Rotor joint states, so RViz can spin the props ============ -->
+    <gazebo>
+      <plugin filename="gz-sim-joint-state-publisher-system"
+              name="gz::sim::systems::JointStatePublisher"/>
+    </gazebo>
+
+    <!-- ============ IMU, modelled on the BOM's MPU-6050 ============ -->
+    <gazebo reference="base_link">
+      <sensor name="imu_sensor" type="imu">
+        <always_on>1</always_on>
+        <update_rate>250</update_rate>
+        <topic>imu</topic>
+        <gz_frame_id>base_link</gz_frame_id>
+        <imu>
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev>
+               <bias_mean>0.00075</bias_mean><bias_stddev>0.005</bias_stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev>
+               <bias_mean>0.00075</bias_mean><bias_stddev>0.005</bias_stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev>
+               <bias_mean>0.00075</bias_mean><bias_stddev>0.005</bias_stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.021</stddev>
+               <bias_mean>0.05</bias_mean><bias_stddev>0.0075</bias_stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.021</stddev>
+               <bias_mean>0.05</bias_mean><bias_stddev>0.0075</bias_stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.021</stddev>
+               <bias_mean>0.05</bias_mean><bias_stddev>0.0075</bias_stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+</robot>

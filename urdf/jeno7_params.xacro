@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  WEAREFPV JeNo 7: stretched-X 7" frame (8 mm arms), printed in PAHT-CF,
+  2807SL + 7040x3 on 6S. Mass and inertia from tools/mass_budget.py.
+  Re-run it once the real parts are weighed and paste the numbers here.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================== MASS BUDGET (kg) ==================== -->
+  <!-- Arms 76 + plates 64 + blocks/side plates 10 (PAHT-CF),
+       10+2 alu standoffs 12, TPU antenna mount/tube/bumper 11 = 173 g -->
+  <!-- 4 x 2807 motor incl. leads                     = 220 g -->
+  <!-- 4 x (7040x3 prop + M5 nut)                     =  46 g -->
+  <!-- 6S 1800 mAh LiPo on the top plate              = 290 g -->
+  <!-- FC+ESC 35, RX/GPS/VTX/cam 40, wiring 30, screws 20 = 125 g -->
+  <!--                                     All-up:   ~= 854 g -->
+  <xacro:property name="mass_total" value="0.854"/>
+  <xacro:property name="mass_base"  value="${mass_total - 4*mass_rotor}"/>
+
+  <!-- About the CoM (base_link origin), in ROS axes. Roll inertia is the
+       larger one because the arms spread wider sideways than fore-aft. -->
+  <xacro:property name="body_ixx" value="0.00483"/>
+  <xacro:property name="body_iyy" value="0.00377"/>
+  <xacro:property name="body_izz" value="0.00781"/>
+
+  <!-- ==================== GEOMETRY (m, from the CoM) ==================== -->
+  <!-- CAD front is +Y: the frame mesh is yawed -90 deg, then shifted so the
+       CoM (CAD 0, 12.7, 39.1 mm) lands on base_link. -->
+  <xacro:property name="cad_offset"    value="-0.0127 0 -0.0391"/>
+  <xacro:property name="rotor_x_front" value=" 0.0951"/>
+  <xacro:property name="rotor_x_rear"  value="-0.0896"/>
+  <xacro:property name="rotor_y"       value=" 0.1196"/>
+  <xacro:property name="rotor_z"       value=" 0.0033"/>   <!-- prop hub bottom -->
+  <xacro:property name="motor_base_z"  value="-0.0234"/>
+
+  <!-- ==================== VELOCITY CONTROLLER ====================
+       F450 gains scaled by I_jeno7/I_f450 per axis (0.49, 0.38, 0.41) and
+       m_jeno7/m_f450 (0.95); gz normalises by both, so same response. -->
+  <xacro:property name="velocity_gain"     value="2.56 2.56 2.56"/>
+  <xacro:property name="attitude_gain"     value="0.99 0.77 0.061"/>
+  <xacro:property name="angular_rate_gain" value="0.197 0.154 0.073"/>
+  <xacro:property name="max_linear_accel"  value="3 3 3"/>
+  <xacro:property name="max_linear_vel"    value="5 5 3"/>
+  <xacro:property name="max_angular_vel"   value="3 3 2"/>
+
+  <xacro:property name="robot_ns" value="jeno7"/>
+
+</robot>

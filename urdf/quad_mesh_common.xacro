@@ -1,0 +1,117 @@
+<?xml version="1.0"?>
+<!--
+  Shared pieces for the CAD-mesh quads (build03, jeno7): 2807SL motors and
+  7040 tri-blade props, both meshes in mm with their axis on the origin and
+  their base at z=0.
+
+  Rotor numbering and spin match f450.urdf.xacro and f450_gazebo.xacro, and
+  the standard props-in layout seen from above:
+
+        FL (2) CW      FR (0) CCW
+               \  front  /
+                \   ^   /
+                 \  |  /
+                 /     \
+        RL (1) CCW     RR (3) CW
+
+  Each rotor link carries the prop and nut visuals, so they spin with the
+  joint the MulticopterMotorModel drives. The motor can stays on base_link.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
+  <xacro:property name="prop_mesh_h" value="0.0084"/>  <!-- prop hub height -->
+
+  <!-- ==================== 2807 1300KV + 7040 TRI-BLADE ON 6S ====================
+       Same power train on both builds (sources in tools/mass_budget.py):
+         no-load 1300 KV x 22.2 V = 28.9k rpm; ~22k rpm loaded -> 2300 rad/s
+         max thrust ~2.0 kg = 19.6 N per motor (X2807 2041 g, A2807 1996 g)
+         kT = 19.6 / 2300^2 = 3.7e-6 N s^2/rad^2  (Ct ~0.12, sane for 7x4x3)
+       Hover at ~0.9 kg needs ~785 rad/s, about 34% of max. -->
+  <xacro:property name="motor_constant"       value="3.7e-6"/>
+  <xacro:property name="moment_constant"      value="0.016"/>
+  <xacro:property name="max_rot_velocity"     value="2300"/>
+  <xacro:property name="rotor_drag_coeff"     value="8.06428e-05"/>
+  <xacro:property name="rolling_moment_coeff" value="1.0e-6"/>
+  <!-- Heavier 7" props spool slower than the F450's 8045s. -->
+  <xacro:property name="time_constant_up"     value="0.020"/>
+  <xacro:property name="time_constant_down"   value="0.035"/>
+
+  <!-- Prop 9.4 g + M5 flange nut 2 g; 180 mm diameter. -->
+  <xacro:property name="mass_rotor"   value="0.0114"/>
+  <xacro:property name="prop_radius"  value="0.0901"/>
+
+  <!-- Visual-only: joint turns at real speed / 40, i.e. ~3 rev/s at hover,
+       ~9 rev/s flat out. Keeps a 3-blade prop under the 60 fps strobe
+       limit so it reads as spinning, not frozen or reversed. Thrust still
+       uses the real speed. -->
+  <xacro:property name="rotor_slowdown_sim" value="40"/>
+
+  <material name="prop_black"><color rgba="0.08 0.08 0.08 1.0"/></material>
+  <material name="motor_grey"><color rgba="0.55 0.55 0.60 1.0"/></material>
+  <material name="nut_red">   <color rgba="0.75 0.10 0.10 1.0"/></material>
+
+  <!-- spin: "cw" or "ccw" seen from above; selects the matching prop shape.
+       x y z: rotor axis at the bottom of the prop hub, relative to the CoM. -->
+  <xacro:macro name="mesh_rotor" params="number x y z spin">
+    <link name="rotor_${number}">
+      <inertial>
+        <origin xyz="0 0 ${prop_mesh_h/2}" rpy="0 0 0"/>
+        <mass value="${mass_rotor}"/>
+        <inertia ixx="${mass_rotor * prop_radius * prop_radius / 4}" ixy="0.0" ixz="0.0"
+                 iyy="${mass_rotor * prop_radius * prop_radius / 4}" iyz="0.0"
+                 izz="${mass_rotor * prop_radius * prop_radius / 2}"/>
+      </inertial>
+      <visual>
+        <geometry>
+          <mesh filename="package://my_drone/meshes/common/Prop_7040-3_${spin}.stl" scale="${mesh_scale}"/>
+        </geometry>
+        <material name="prop_black"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 ${prop_mesh_h}" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://my_drone/meshes/common/Nut_M5_flange.stl" scale="${mesh_scale}"/>
+        </geometry>
+        <material name="nut_red"/>
+      </visual>
+      <!-- No collision on the props, same as the F450. -->
+    </link>
+    <joint name="rotor_${number}_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="rotor_${number}"/>
+      <origin xyz="${x} ${y} ${z}" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="100.0" velocity="${max_rot_velocity}"/>
+      <dynamics damping="0.0" friction="0.0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Motor can on base_link; z is the motor base (mounting face). -->
+  <xacro:macro name="motor_visual" params="x y z">
+    <visual>
+      <origin xyz="${x} ${y} ${z}" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://my_drone/meshes/common/Motor_2807SL.stl" scale="${mesh_scale}"/>
+      </geometry>
+      <material name="motor_grey"/>
+    </visual>
+  </xacro:macro>
+
+  <!-- The four rotors + motor cans for a quad, from per-drone properties:
+       rotor_x_front / rotor_x_rear / rotor_y / rotor_z / motor_base_z. -->
+  <xacro:macro name="quad_rotors" params="">
+    <xacro:mesh_rotor number="0" x="${rotor_x_front}" y="${-rotor_y}" z="${rotor_z}" spin="ccw"/>  <!-- FR -->
+    <xacro:mesh_rotor number="1" x="${rotor_x_rear}"  y="${ rotor_y}" z="${rotor_z}" spin="ccw"/>  <!-- RL -->
+    <xacro:mesh_rotor number="2" x="${rotor_x_front}" y="${ rotor_y}" z="${rotor_z}" spin="cw"/>   <!-- FL -->
+    <xacro:mesh_rotor number="3" x="${rotor_x_rear}"  y="${-rotor_y}" z="${rotor_z}" spin="cw"/>   <!-- RR -->
+  </xacro:macro>
+
+  <xacro:macro name="quad_motor_visuals" params="">
+    <xacro:motor_visual x="${rotor_x_front}" y="${-rotor_y}" z="${motor_base_z}"/>
+    <xacro:motor_visual x="${rotor_x_rear}"  y="${ rotor_y}" z="${motor_base_z}"/>
+    <xacro:motor_visual x="${rotor_x_front}" y="${ rotor_y}" z="${motor_base_z}"/>
+    <xacro:motor_visual x="${rotor_x_rear}"  y="${-rotor_y}" z="${motor_base_z}"/>
+  </xacro:macro>
+
+</robot>

@@ -1,0 +1,2 @@
+# CAD meshes: never diff or merge as text
+*.stl binary
