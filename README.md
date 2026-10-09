@@ -52,11 +52,16 @@ ros2 run my_drone arrow_teleop.py
 | `a` / `d` | yaw left / right |
 | `space` | stop and hover |
 | `+` / `-` | speed scale |
-| `q` | quit |
+| `q` / Ctrl+C | land, stop the motors, quit (Ctrl+C twice: stop motors now) |
 
-The drone arms itself ~3 s after it spawns. Stop with Ctrl+C in the launch
-terminal or by closing the Gazebo window: either stops everything. Any
-process a crashed session left behind is cleared at the next launch.
+The drone spawns disarmed with its props still. Teleop arms it when it
+starts (props spin up to idle-hover speed); quitting teleop lands the drone
+if it is airborne and then disarms it, so the props stop. Your terminal is
+restored either way.
+
+Stop the sim with Ctrl+C in the launch terminal or by closing the Gazebo
+window: either stops everything. Any process a crashed session left behind
+is cleared at the next launch.
 
 ### RViz
 
