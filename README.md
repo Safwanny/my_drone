@@ -1,13 +1,22 @@
 # my_drone
 
-Quadcopter simulation for ROS 2 Jazzy + Gazebo Harmonic. Two 7-inch
-airframes built from CAD, both with 2807SL motors and 7040 tri-blade props
-on 6S:
+![Build 03 hovering in Gazebo](docs/images/hero_front.png)
 
-| `drone:=` | Airframe | Layout | All-up mass |
-|---|---|---|---|
-| `build03` (default, **main drone**) | Custom Drone Build 03 | true X, 404 mm | 0.931 kg |
-| `jeno7` | WEAREFPV JeNo 7 | stretched X, 302 mm | 0.854 kg |
+Quadcopter simulation for ROS 2 Jazzy + Gazebo Harmonic: **Custom Drone
+Build 03**, a 7-inch true-X quad (404 mm, 0.931 kg all-up) built from CAD,
+with 2807SL motors and 7040 tri-blade props on 6S.
+
+It flies on its own cascaded flight controller (position, velocity,
+attitude, rate, mixer), the same structure PX4 and ArduPilot use, with
+keyboard teleop and go-to-goal waypoints. How it works, with plots from the
+sim: **[docs/controller.pdf](docs/controller.pdf)**.
+
+| RViz: body and rotor frames | RViz: odometry trail of a waypoint route |
+|---|---|
+| ![RViz: body and rotor frames](docs/images/rviz.png) | ![RViz: odometry trail of a waypoint route](docs/images/rviz_route.png) |
+
+Gazebo's built-in velocity controller is still available with
+`controller:=gz`, for comparison.
 
 Props spin in the standard props-in pattern, seen from above:
 front-left CW, front-right CCW, rear-left CCW, rear-right CW.
@@ -32,12 +41,9 @@ Launch (opens Gazebo and RViz):
 ros2 launch my_drone sim.launch.py
 ```
 
-```bash
-ros2 launch my_drone sim.launch.py drone:=jeno7
-```
-
 Options: `rviz:=false`, `headless:=true` (no Gazebo window), `z:=0.5`
-(spawn height).
+(spawn height), `controller:=gz` (Gazebo's built-in velocity controller
+instead of ours; no `/goal_pose` then).
 
 Fly, in a second terminal (needs a real keyboard/TTY):
 
@@ -63,6 +69,17 @@ Stop the sim with Ctrl+C in the launch terminal or by closing the Gazebo
 window: either stops everything. Any process a crashed session left behind
 is cleared at the next launch.
 
+Go to goal, in a second terminal: each waypoint is `x,y,z[,yaw_deg]` in
+the odom frame. The script arms the drone, flies the waypoints in order and
+prints the time and overshoot for each, then leaves it hovering.
+
+```bash
+ros2 run my_drone goto.py 0,0,2 3,3,2 -2,1,1,90 0,0,0.3
+```
+
+RViz's *2D Goal Pose* tool works too (it keeps the current altitude, or
+takes off to 1.5 m).
+
 ### RViz
 
 Side panels start hidden; click the arrow on the left/right window edge to
@@ -73,23 +90,60 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 
 | Topic | Type | Direction |
 |---|---|---|
-| `/cmd_vel` | `geometry_msgs/Twist` (body-frame velocity) | in |
-| `/enable` | `std_msgs/Bool` | in |
+| `/cmd_vel` | `geometry_msgs/Twist` (heading-frame velocity + yaw rate) | in |
+| `/goal_pose` | `geometry_msgs/PoseStamped` (position + yaw, odom frame) | in |
+| `/enable` | `std_msgs/Bool` (arm / disarm) | in |
+| `/motor_speed` | `actuator_msgs/Actuators` (rotor speeds, rad/s) | controller → gz |
 | `/odom` | `nav_msgs/Odometry` | out |
 | `/imu` | `sensor_msgs/Imu` | out |
 | `/joint_states` | `sensor_msgs/JointState` (prop angles) | out |
 | `/tf`, `/clock` | | out |
 
+## Flight controller
+
+`src/flight_controller.cpp` (ROS I/O, modes, failsafes) around
+`src/control.hpp` (the math, no ROS). It is the cascade PX4 and ArduPilot
+use, in physical units:
+
+```
+/goal_pose ─▶ position P ─▶ velocity PID ─▶ thrust vector ─▶ attitude P ─▶ rate PID ─▶ mixer ─▶ /motor_speed
+/cmd_vel   ───────────────────▲            (tilt limit)    (quaternion)              (from rotor geometry)
+```
+
+- Each `/imu` sample (250 Hz) runs the loop, like a real FC's gyro. `/odom`
+  (50 Hz) is the state estimate; attitude is propagated with the gyro in
+  between. Swap `/odom` for an EKF later and nothing else changes.
+- Modes: the last input wins. `/goal_pose` gives position mode, `/cmd_vel`
+  gives velocity mode. Centre the stick (or stop sending) and it brakes, then
+  holds position.
+- On the ground it idles until something asks to climb. If `/odom` stops it
+  levels out and sinks slowly. Disarm stops the motors at once.
+- Mass, inertia, motor constants and rotor layout come from the
+  `<quad_physics>` element `quad_gazebo.xacro` writes into the URDF, so they
+  always match the Gazebo model. Gains are in `config/controller.yaml`
+  (physical units, so they do not need rescaling when the mass changes).
+  Tune inner to outer: rate, attitude, velocity, position.
+
+`colcon test --packages-select my_drone` runs the sign and scale checks in
+`test/test_control.cpp`.
+
 ## Layout
 
 ```
 urdf/quad_mesh_common.xacro  motor/prop physics + spinning prop macros (shared)
-urdf/quad_gazebo.xacro       gz plugins: motor models, velocity controller, IMU, odom
-urdf/<drone>_params.xacro    mass, inertia, rotor positions, controller gains
-urdf/<drone>.urdf.xacro      frame meshes + collision boxes
-config/bridge_<drone>.yaml   ROS <-> gz topic bridge
+urdf/quad_gazebo.xacro       gz plugins: motor models, IMU, odom; <quad_physics> for our
+                             controller; gz velocity controller if controller:=gz
+urdf/build03_params.xacro    mass, inertia, rotor positions (gz controller gains)
+urdf/build03.urdf.xacro      frame meshes + collision boxes
+config/bridge_build03.yaml   ROS <-> gz topic bridge
+config/controller.yaml       flight controller gains and limits
+src/                         flight controller (control.hpp = math)
+scripts/                     arrow_teleop.py, goto.py
 meshes/                      STLs (mm) copied from the CAD folders
 tools/mass_budget.py         mass / CoM / inertia from meshes + part weights
+docs/controller.html|pdf     controller write-up (build_pdf.py prints it with Firefox;
+                             make_figures.py plots data/flight.npz)
+docs/images/                 README and write-up images
 ```
 
 ## When real weights are known
@@ -101,12 +155,14 @@ weighing:
 1. Edit the tables at the top of `tools/mass_budget.py` (it reads the CAD
    folders under `/media/safwan/Shared/Drone_Frames`, or `$DRONE_FRAMES`).
 2. Run `python3 tools/mass_budget.py` and paste the printed values into
-   `urdf/<drone>_params.xacro`.
-3. Rescale `attitude_gain` / `angular_rate_gain` by the inertia change per
-   axis and `velocity_gain` by the mass change. Gazebo's controller
-   normalises gains by both, so this keeps the same response.
+   `urdf/build03_params.xacro`.
+3. Our controller picks the new values up by itself. Only for
+   `controller:=gz`: rescale `attitude_gain` / `angular_rate_gain` by the
+   inertia change per axis and `velocity_gain` by the mass change. Gazebo's
+   controller normalises gains by both, so this keeps the same response.
 
 ## History
 
-The original F450 model was removed in 0.2.0. `git checkout f450-final`
-restores it.
+The original F450 model was removed in 0.2.0 (`git checkout f450-final`
+restores it). The WEAREFPV JeNo 7 was removed in 0.3.0 (`git checkout
+v0.2.1` has it).

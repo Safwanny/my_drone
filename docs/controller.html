@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Build 03 Flight Controller</title>
+<!-- Source of docs/controller.pdf: python3 docs/build_pdf.py (headless Firefox). -->
+<style>
+  :root { --ink: #1b1b1a; --ink2: #52514e; --rule: #d9d8d3; --accent: #2a78d6; --tint: #f5f5f3; }
+  html { font-family: "Noto Serif", "DejaVu Serif", serif; font-size: 10.5pt; color: var(--ink); background: #fff; }
+  body { margin: 0; line-height: 1.5; hyphens: auto; text-align: justify; counter-reset: sec fig; }
+  math { font-family: "DejaVu Math TeX Gyre", math; font-size: 1.05em; }
+  math[display="block"] { margin: 0.7em 0; }
+  h1, h2, h3 { font-family: "Noto Sans", "DejaVu Sans", sans-serif; text-align: left; line-height: 1.25; }
+  h2 { counter-increment: sec; font-size: 14pt; margin: 1.6em 0 0.5em; padding-bottom: 3px; border-bottom: 1px solid var(--rule); break-after: avoid; }
+  h2::before { content: counter(sec) "\2003"; color: var(--accent); }
+  h2.nonum { counter-increment: none; } h2.nonum::before { content: none; }
+  h3 { font-size: 11pt; margin: 1.1em 0 0.3em; break-after: avoid; }
+  p { margin: 0.45em 0; orphans: 3; widows: 3; }
+  code { font-family: "DejaVu Sans Mono", monospace; font-size: 0.86em; background: var(--tint); padding: 0 3px; border-radius: 2px; }
+  ul, ol { margin: 0.4em 0; padding-left: 1.4em; } li { margin: 0.15em 0; }
+  figure { margin: 1em 0; text-align: center; break-inside: avoid; counter-increment: fig; }
+  figure img, figure svg.diag { max-width: 100%; }
+  figure .pair { display: flex; gap: 2%; justify-content: center; align-items: flex-start; }
+  figure .pair > div { flex: 1; }
+  figure .pair .sub { font-size: 8.5pt; color: var(--ink2); margin-top: 2px; text-align: center; }
+  figcaption { font-size: 9pt; color: var(--ink2); margin-top: 4px; text-align: center; }
+  figcaption::before { content: "Figure " counter(fig) ". "; font-weight: bold; color: var(--ink); }
+  table { border-collapse: collapse; margin: 0.8em auto; font-size: 9.5pt; break-inside: avoid; text-align: left; }
+  th, td { padding: 3px 10px; vertical-align: top; }
+  thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); }
+  tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+  td.num, th.num { text-align: right; }
+  .tcap { font-size: 9pt; color: var(--ink2); text-align: center; margin-top: -0.3em; }
+  .title { text-align: center; margin: 0 0 1.2em; }
+  .title h1 { font-size: 24pt; margin: 0.2em 0 0.1em; text-align: center; }
+  .title .sub { font-size: 13pt; color: var(--ink2); }
+  .title .meta { font-size: 10pt; color: var(--ink2); margin-top: 0.6em; }
+  .abstract { margin: 1em 3em; font-size: 10pt; }
+  .abstract b { font-family: "Noto Sans", "DejaVu Sans", sans-serif; }
+  .toc { margin: 1.2em 3em; font-size: 10pt; columns: 2; }
+  .toc ol { margin: 0; } .toc a { color: var(--ink); text-decoration: none; }
+  .chain { text-align: center; margin: 0.6em 0; font-style: italic; }
+  .pagebreak { break-before: page; }
+  .keep { break-inside: avoid; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="title">
+  <h1>Build 03 Flight Controller</h1>
+  <div class="sub">A cascaded multicopter controller for ROS&nbsp;2 and Gazebo, explained</div>
+  <div class="meta">Safwan Shaikh · <code>my_drone</code> 0.3.0</div>
+</div>
+
+<figure>
+  <img src="images/hero_front.png" style="width: 88%">
+  <figcaption>Build 03 hovering in Gazebo Harmonic under its own flight controller.</figcaption>
+</figure>
+
+<div class="abstract">
+<p><b>Summary.</b> Build 03 is a 7-inch, 0.93&nbsp;kg quadcopter: 2807 motors,
+7040 tri-blade props, 6S. In simulation it used to fly on Gazebo's built-in
+velocity controller, a black box with no position loop. This document
+describes the controller that replaced it. It is the same cascade PX4 and
+ArduPilot use (position → velocity → thrust vector → attitude → body rate →
+mixer), written as one ROS&nbsp;2 node in C++. Each loop is derived, tied to
+the code that implements it, and shown working on data recorded from the
+simulator.</p>
+</div>
+
+<div class="toc"><ol>
+  <li><a href="#s1">Why a cascade</a></li>
+  <li><a href="#s2">The vehicle model</a></li>
+  <li><a href="#s3">Mixer</a></li>
+  <li><a href="#s4">Rate loop</a></li>
+  <li><a href="#s5">Attitude loop</a></li>
+  <li><a href="#s6">Thrust vector and tilt limit</a></li>
+  <li><a href="#s7">Velocity loop</a></li>
+  <li><a href="#s8">Position loop</a></li>
+  <li><a href="#s9">Modes, estimator and safety</a></li>
+  <li><a href="#s10">Results</a></li>
+  <li><a href="#s11">Compared with Gazebo's controller</a></li>
+  <li><a href="#s12">Tuning guide</a></li>
+</ol></div>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s1" class="pagebreak">Why a cascade</h2>
+
+<p>A quadcopter has four inputs (the motor speeds) but six degrees of freedom.
+All four props push along one axis, the body <i>z</i> axis, so the vehicle
+cannot push sideways; it has to <em>tilt</em> its thrust. That forces a chain:</p></div>
+
+<p class="chain">position → velocity → acceleration → tilt → body rate → torque → motor speeds</p>
+
+<p>Each arrow is one controller, and each treats the loop inside it as a
+perfect actuator. That only holds if every inner loop is clearly faster than
+the one wrapped around it. The table below shows the separation used here:
+roughly a factor of three per stage.</p>
+
+<table>
+  <thead><tr><th>Loop</th><th>Gain (physical units)</th><th>Rough bandwidth</th></tr></thead>
+  <tbody>
+    <tr><td>Motors (physics)</td><td>time constant 20&nbsp;ms</td><td>50&nbsp;rad/s</td></tr>
+    <tr><td>Rate</td><td><i>K</i><sub>p</sub> = 18 (rad/s² per rad/s)</td><td>18&nbsp;rad/s</td></tr>
+    <tr><td>Attitude</td><td><i>K</i><sub>p</sub> = 6 (rad/s per rad)</td><td>6&nbsp;rad/s</td></tr>
+    <tr><td>Velocity</td><td><i>K</i><sub>p</sub> = 2 (m/s² per m/s)</td><td>2&nbsp;rad/s</td></tr>
+    <tr><td>Position</td><td><i>K</i><sub>p</sub> = 1 (m/s per m)</td><td>1&nbsp;rad/s</td></tr>
+  </tbody>
+</table>
+<p class="tcap">Loop bandwidths, inner to outer.</p>
+
+<h3>Architecture</h3>
+
+<figure>
+<svg class="diag" viewBox="0 0 760 210" width="100%" font-family="DejaVu Sans, sans-serif" font-size="12">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1b1b1a"/></marker>
+        <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a8984"/></marker></defs>
+  <g fill="#eaf1fb" stroke="#2a78d6" stroke-width="1.2">
+    <rect x="10"  y="80" width="95" height="48" rx="4"/>
+    <rect x="135" y="80" width="95" height="48" rx="4"/>
+    <rect x="260" y="80" width="110" height="48" rx="4"/>
+    <rect x="400" y="80" width="110" height="48" rx="4"/>
+    <rect x="540" y="80" width="90" height="48" rx="4"/>
+    <rect x="660" y="80" width="90" height="48" rx="4"/>
+  </g>
+  <g text-anchor="middle" fill="#1b1b1a">
+    <text x="57"  y="100">Position</text><text x="57"  y="117" fill="#52514e">P</text>
+    <text x="182" y="100">Velocity</text><text x="182" y="117" fill="#52514e">PID</text>
+    <text x="315" y="100">Thrust vector</text><text x="315" y="117" fill="#52514e">tilt limit</text>
+    <text x="455" y="100">Attitude</text><text x="455" y="117" fill="#52514e">quaternion P</text>
+    <text x="585" y="100">Rate</text><text x="585" y="117" fill="#52514e">PID</text>
+    <text x="705" y="108">Mixer</text>
+  </g>
+  <g stroke="#1b1b1a" stroke-width="1.4" marker-end="url(#ar)">
+    <line x1="105" y1="104" x2="133" y2="104"/><line x1="230" y1="104" x2="258" y2="104"/>
+    <line x1="370" y1="104" x2="398" y2="104"/><line x1="510" y1="104" x2="538" y2="104"/>
+    <line x1="630" y1="104" x2="658" y2="104"/>
+    <line x1="57" y1="38" x2="57" y2="78"/><line x1="182" y1="38" x2="182" y2="78"/>
+    <line x1="705" y1="128" x2="705" y2="168"/>
+  </g>
+  <path d="M315,80 V62 H705 V78" fill="none" stroke="#1b1b1a" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="510" y="57" text-anchor="middle" font-size="10" fill="#52514e">collective thrust <tspan font-style="italic">T</tspan></text>
+  <g font-size="10.5" fill="#52514e" text-anchor="middle" font-style="italic">
+    <text x="119" y="98">v</text><text x="244" y="98">a</text><text x="384" y="98">q</text><text x="524" y="98">ω</text><text x="645" y="98">τ</text>
+  </g>
+  <g font-family="DejaVu Sans Mono, monospace" font-size="11" text-anchor="middle" fill="#1b1b1a">
+    <text x="57" y="30">/goal_pose</text><text x="182" y="30">/cmd_vel</text>
+    <text x="705" y="184">/motor_speed</text>
+  </g>
+  <text x="705" y="199" text-anchor="middle" font-size="10" fill="#52514e">→ Gazebo motor models</text>
+  <g stroke="#8a8984" stroke-width="1.2" fill="none" marker-end="url(#ag)">
+    <path d="M120,175 H57 V130"/><path d="M182,175 V130"/>
+    <path d="M520,175 H455 V130"/><path d="M585,175 V130"/>
+  </g>
+  <g font-size="10.5" fill="#52514e">
+    <text x="190" y="190" text-anchor="middle"><tspan font-family="DejaVu Sans Mono, monospace">/odom</tspan> 50 Hz, state estimate</text>
+    <text x="560" y="190" text-anchor="middle"><tspan font-family="DejaVu Sans Mono, monospace">/imu</tspan> gyro 250 Hz, runs the loop</text>
+  </g>
+</svg>
+<figcaption>The cascade in <code>flight_controller</code>. A position setpoint
+enters on the left, a velocity setpoint (teleop) one block later. The
+collective thrust goes straight from the thrust-vector block to the mixer.</figcaption>
+</figure>
+
+<p>The code is split in two:</p>
+<ul>
+  <li><code>src/control.hpp</code>: the maths, free of ROS and unit tested
+      (<code>test/test_control.cpp</code>).</li>
+  <li><code>src/flight_controller.cpp</code>: ROS input and output, setpoint
+      modes, arming and failsafes.</li>
+</ul>
+<p>Mass, inertia, motor constants and rotor layout are read from a
+<code>&lt;quad_physics&gt;</code> element that <code>quad_gazebo.xacro</code>
+writes into the URDF. The controller therefore always uses the same numbers as
+the simulated vehicle. Gains live in <code>config/controller.yaml</code>.</p>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s2">The vehicle model</h2>
+
+<p>Gazebo's <code>MulticopterMotorModel</code> turns a commanded rotor speed
+<i>ω</i> into thrust and a drag torque on the body:</p></div>
+
+<math display="block">
+  <mi>f</mi><mo>=</mo><mi>k</mi><msup><mi>ω</mi><mn>2</mn></msup><mo>,</mo><mspace width="1.5em"/>
+  <msub><mi>τ</mi><mtext>drag</mtext></msub><mo>=</mo><mi>c</mi><mi>f</mi><mo>,</mo><mspace width="1.5em"/>
+  <mi>k</mi><mo>=</mo><mn>3.7</mn><mo>×</mo><msup><mn>10</mn><mrow><mo>−</mo><mn>6</mn></mrow></msup>
+  <mtext>&#x2009;N&#x2009;s²/rad²</mtext><mo>,</mo><mspace width="1em"/>
+  <mi>c</mi><mo>=</mo><mn>0.016</mn><mtext>&#x2009;m</mtext>
+</math>
+
+<p>Hover needs <i>mg</i>/4 = 2.28&nbsp;N per rotor, so <i>ω</i><sub>hover</sub>
+= √(2.28/<i>k</i>) ≈ 785&nbsp;rad/s. That is exactly the speed the rotors
+settle at in the simulator. Full thrust is 19.6&nbsp;N per rotor, which gives a
+thrust-to-weight ratio of 8.6. The vehicle is heavily overpowered, which is
+why the position loops are capped (Section&nbsp;6).</p>
+
+<p>Rotation follows Euler's rigid-body equation, with <b><i>J</i></b> the
+inertia (<i>I</i><sub>xx</sub> = 0.00711, <i>I</i><sub>yy</sub> = 0.00754,
+<i>I</i><sub>zz</sub> = 0.01362&nbsp;kg&nbsp;m²):</p>
+
+<math display="block">
+  <mi>𝝉</mi><mo>=</mo><mi>𝑱</mi><mover><mi>𝝎</mi><mo>˙</mo></mover><mo>+</mo>
+  <mi>𝝎</mi><mo>×</mo><mo>(</mo><mi>𝑱</mi><mi>𝝎</mi><mo>)</mo>
+</math>
+
+<figure>
+  <div class="pair">
+    <div><img src="images/top.png"><div class="sub">Top view. Rotor 0 front-right (ccw), 1 rear-left (ccw), 2 front-left (cw), 3 rear-right (cw).</div></div>
+    <div><img src="images/rviz.png"><div class="sub">RViz: body frame at the centre of mass and one frame per rotor (x red, y green, z blue).</div></div>
+  </div>
+  <figcaption>Build 03's layout: a true X, rotors 143&nbsp;mm from the centre of mass on each axis.</figcaption>
+</figure>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s3">Mixer: from thrust and torques to motors</h2>
+
+<p>The controller asks for a collective thrust <i>T</i> and body torques
+<i>τ</i><sub>x</sub>, <i>τ</i><sub>y</sub>, <i>τ</i><sub>z</sub>. Rotor
+<i>i</i> sits at (<i>x</i><sub>i</sub>, <i>y</i><sub>i</sub>) and spins with
+direction <i>d</i><sub>i</sub> (+1 counter-clockwise). Its thrust
+<i>f</i><sub>i</sub> contributes:</p></div>
+
+<math display="block">
+  <mrow><mo>[</mo><mtable><mtr><mtd><mi>T</mi></mtd></mtr><mtr><mtd><msub><mi>τ</mi><mi>x</mi></msub></mtd></mtr><mtr><mtd><msub><mi>τ</mi><mi>y</mi></msub></mtd></mtr><mtr><mtd><msub><mi>τ</mi><mi>z</mi></msub></mtd></mtr></mtable><mo>]</mo></mrow>
+  <mo>=</mo>
+  <munder><mrow><mo>[</mo><mtable columnspacing="1em">
+    <mtr><mtd><mn>1</mn></mtd><mtd><mn>1</mn></mtd><mtd><mn>1</mn></mtd><mtd><mn>1</mn></mtd></mtr>
+    <mtr><mtd><msub><mi>y</mi><mn>0</mn></msub></mtd><mtd><msub><mi>y</mi><mn>1</mn></msub></mtd><mtd><msub><mi>y</mi><mn>2</mn></msub></mtd><mtd><msub><mi>y</mi><mn>3</mn></msub></mtd></mtr>
+    <mtr><mtd><mo>−</mo><msub><mi>x</mi><mn>0</mn></msub></mtd><mtd><mo>−</mo><msub><mi>x</mi><mn>1</mn></msub></mtd><mtd><mo>−</mo><msub><mi>x</mi><mn>2</mn></msub></mtd><mtd><mo>−</mo><msub><mi>x</mi><mn>3</mn></msub></mtd></mtr>
+    <mtr><mtd><mo>−</mo><msub><mi>d</mi><mn>0</mn></msub><mi>c</mi></mtd><mtd><mo>−</mo><msub><mi>d</mi><mn>1</mn></msub><mi>c</mi></mtd><mtd><mo>−</mo><msub><mi>d</mi><mn>2</mn></msub><mi>c</mi></mtd><mtd><mo>−</mo><msub><mi>d</mi><mn>3</mn></msub><mi>c</mi></mtd></mtr>
+  </mtable><mo>]</mo></mrow><mi>A</mi></munder>
+  <mrow><mo>[</mo><mtable><mtr><mtd><msub><mi>f</mi><mn>0</mn></msub></mtd></mtr><mtr><mtd><msub><mi>f</mi><mn>1</mn></msub></mtd></mtr><mtr><mtd><msub><mi>f</mi><mn>2</mn></msub></mtd></mtr><mtr><mtd><msub><mi>f</mi><mn>3</mn></msub></mtd></mtr></mtable><mo>]</mo></mrow>
+</math>
+
+<p>The rows read as follows:</p>
+<ul>
+  <li><b>Roll</b>: lift on the left (+<i>y</i>) rolls the right side down.</li>
+  <li><b>Pitch</b>: lift at the back pitches the nose down.</li>
+  <li><b>Yaw</b>: a prop spinning counter-clockwise drags the body clockwise,
+      hence the minus sign.</li>
+</ul>
+
+<p><i>A</i> is built from the rotor geometry and inverted once at start-up,
+so <b><i>f</i></b> = <i>A</i><sup>−1</sup>[<i>T</i>, <b><i>τ</i></b>]<sup>⊤</sup>
+and <i>ω</i><sub>i</sub> = √(<i>f</i><sub>i</sub>/<i>k</i>). Building <i>A</i>
+from geometry means any quad layout works without a hand-written mixer table.</p>
+
+<p><b>Yaw is the weak axis.</b> Roll and pitch act through a 0.143&nbsp;m lever;
+yaw only through <i>c</i> = 0.016&nbsp;m, nine times less. Near hover a large
+yaw demand asks for more thrust difference than the motors have. The first
+version of the mixer dropped yaw entirely when that happened, and the drone
+stalled 62° short of its yaw target.</p>
+
+<p>The fix follows PX4. Thrust, roll and pitch are served first. Yaw then gets
+the largest fraction <i>s</i> ∈ [0,&nbsp;1] of its torque that keeps every
+rotor within its limits:</p>
+
+<math display="block">
+  <mi>𝒇</mi><mo>=</mo><msup><mi>A</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup>
+  <msup><mrow><mo>[</mo><mi>T</mi><mo>,</mo><msub><mi>τ</mi><mi>x</mi></msub><mo>,</mo><msub><mi>τ</mi><mi>y</mi></msub><mo>,</mo><mn>0</mn><mo>]</mo></mrow><mo>⊤</mo></msup>
+  <mo>+</mo><mi>s</mi><mspace width="0.2em"/><msup><mi>A</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup>
+  <msup><mrow><mo>[</mo><mn>0</mn><mo>,</mo><mn>0</mn><mo>,</mo><mn>0</mn><mo>,</mo><msub><mi>τ</mi><mi>z</mi></msub><mo>]</mo></mrow><mo>⊤</mo></msup>
+</math>
+
+<p>Figure&nbsp;4 shows this during a 90° turn. One diagonal pair is pushed down
+to the idle floor while the other speeds up, so total thrust stays constant.
+The pairs swap roles to brake the turn.</p>
+
+<figure>
+  <img src="figures/motors_yaw.svg" style="width: 86%">
+  <figcaption>Rotor speeds during a 90° yaw. The turn saturates one pair at
+  idle; <i>s</i> &lt; 1 keeps the yaw command as large as still fits.</figcaption>
+</figure>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s4">Rate loop</h2>
+
+<p>The innermost loop makes the body spin at the rate
+<b><i>ω</i></b><sub>sp</sub> that the attitude loop asks for. It reads the gyro
+directly and runs on every IMU sample (250&nbsp;Hz), the way a real flight
+controller is triggered.</p></div>
+
+<math display="block">
+  <msub><mover><mi>𝝎</mi><mo>˙</mo></mover><mtext>sp</mtext></msub><mo>=</mo>
+  <msub><mi>K</mi><mi>p</mi></msub><mo>(</mo><msub><mi>𝝎</mi><mtext>sp</mtext></msub><mo>−</mo><mi>𝝎</mi><mo>)</mo><mo>+</mo>
+  <msub><mi>K</mi><mi>i</mi></msub><mo>∫</mo><mo>(</mo><msub><mi>𝝎</mi><mtext>sp</mtext></msub><mo>−</mo><mi>𝝎</mi><mo>)</mo><mspace width="0.15em"/><mi>d</mi><mi>t</mi>
+  <mo>−</mo><msub><mi>K</mi><mi>d</mi></msub><mover><mi>𝝎</mi><mo>˙</mo></mover><mo>,</mo><mspace width="2em"/>
+  <mi>𝝉</mi><mo>=</mo><mi>𝑱</mi><msub><mover><mi>𝝎</mi><mo>˙</mo></mover><mtext>sp</mtext></msub><mo>+</mo><mi>𝝎</mi><mo>×</mo><mi>𝑱</mi><mi>𝝎</mi>
+</math>
+
+<p>What each part does:</p>
+<ul>
+  <li><b>P</b> reacts to the current rate error.</li>
+  <li><b>I</b> removes steady torque offsets: a centre of mass slightly off
+      centre, or one motor slightly weaker. It is clamped
+      (<code>rate_i_max</code>) so it cannot wind up while the drone sits on
+      the ground.</li>
+  <li><b>D</b> acts on the <em>measured</em> angular acceleration, not on the
+      error, so a step in the setpoint gives no derivative kick. It is low-pass
+      filtered because differentiating a noisy gyro amplifies the noise.</li>
+  <li><b>Multiplying by <i>J</i></b> keeps the gains in physical units. A heavier
+      or larger airframe changes <i>J</i>, and the torque scales with it; the
+      gains do not need retuning.</li>
+</ul>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s5">Attitude loop</h2>
+
+<p>Orientation is kept as a quaternion. Euler angles have a singularity at 90°
+pitch and wrap at ±180°; a quaternion has neither problem. The error rotation,
+expressed in body axes, is</p></div>
+
+<math display="block">
+  <msub><mi>q</mi><mi>e</mi></msub><mo>=</mo><msup><mi>q</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup><mo>⊗</mo><msub><mi>q</mi><mtext>sp</mtext></msub><mo>,</mo><mspace width="2em"/>
+  <msub><mi>𝝎</mi><mtext>sp</mtext></msub><mo>=</mo><mn>2</mn><mspace width="0.15em"/><msub><mi>K</mi><mi>p</mi></msub>
+  <mspace width="0.15em"/><mi>sign</mi><mo>(</mo><msub><mi>q</mi><mrow><mi>e</mi><mo>,</mo><mi>w</mi></mrow></msub><mo>)</mo><mspace width="0.15em"/>
+  <msub><mi>𝒒</mi><mrow><mi>e</mi><mo>,</mo><mi>x</mi><mi>y</mi><mi>z</mi></mrow></msub>
+</math>
+
+<p>The result is saturated at <code>rate_max</code>.</p>
+
+<p>A quaternion's vector part is <b><i>n</i></b>&nbsp;sin(<i>θ</i>/2). For
+small errors 2&nbsp;sin(<i>θ</i>/2) ≈ <i>θ</i>, so the law is simply
+“spin rate = gain × angle error”, about the correct axis. The sign term picks
+the shorter way round.</p>
+
+<p>A P controller is enough here. The rate loop below behaves like an
+integrator (rate becomes angle), so the attitude loop has no steady-state
+error. Yaw gets a lower gain (3 instead of 6) because it has the least
+authority.</p>
+
+<p>Between 50&nbsp;Hz odometry updates the attitude estimate is propagated with
+the gyro. This is the prediction step of any real estimator:</p>
+
+<math display="block">
+  <mi>q</mi><mo>←</mo><mi>q</mi><mo>⊗</mo><mi>exp</mi><mo>(</mo><mfrac><mn>1</mn><mn>2</mn></mfrac><mi>𝝎</mi><mspace width="0.15em"/><mi>Δ</mi><mi>t</mi><mo>)</mo>
+</math>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s6">Thrust vector and tilt limit</h2>
+
+<p>This block connects the “where to go” loops to the “how to point” loops.
+The velocity loop asks for a world acceleration <b><i>a</i></b><sub>sp</sub>,
+and the props must also cancel gravity:</p></div>
+
+<math display="block">
+  <mi>𝒇</mi><mo>=</mo><msub><mi>𝒂</mi><mtext>sp</mtext></msub><mo>+</mo><mi>g</mi><mspace width="0.1em"/><mover><mi>𝒛</mi><mo>^</mo></mover>
+</math>
+
+<p>Here <b><i>f</i></b> is the specific thrust (thrust per unit mass, in the
+world frame). Its direction is where body <i>z</i> must point; its size is how
+hard to push.</p>
+
+<p>Before use it is limited in PX4's priority order:</p>
+<ol>
+  <li><b>Vertical first.</b> <i>f</i><sub>z</sub> is clamped to
+      [0.1<i>g</i>, <i>a</i><sub>max</sub>], where <i>a</i><sub>max</sub> is 80%
+      of full thrust. The rest is held back for the attitude loop.</li>
+  <li><b>Horizontal from what is left.</b> The horizontal part is limited by the
+      tilt limit and by the remaining thrust:</li>
+</ol>
+
+<math display="block">
+  <mo>|</mo><msub><mi>𝒇</mi><mrow><mi>x</mi><mi>y</mi></mrow></msub><mo>|</mo><mo>≤</mo>
+  <mi>min</mi><mrow><mo>(</mo><msub><mi>f</mi><mi>z</mi></msub><mspace width="0.15em"/><mi>tan</mi><mspace width="0.15em"/><mn>35</mn><mo>°</mo><mo>,</mo><mspace width="0.5em"/>
+  <msqrt><msubsup><mi>a</mi><mtext>max</mtext><mn>2</mn></msubsup><mo>−</mo><msubsup><mi>f</mi><mi>z</mi><mn>2</mn></msubsup></msqrt><mo>)</mo></mrow>
+</math>
+
+<p>The target orientation is then built from two requirements: body <i>z</i>
+along <b><i>f</i></b>, and the nose at the commanded yaw <i>ψ</i>. Body
+<i>y</i> is <i>ẑ</i><sub>b</sub> × (cos&nbsp;<i>ψ</i>, sin&nbsp;<i>ψ</i>, 0),
+and body <i>x</i> completes the frame.</p>
+
+<p>The collective thrust uses the body <i>z</i> the vehicle has <em>now</em>:</p>
+
+<math display="block">
+  <mi>T</mi><mo>=</mo><mi>m</mi><mspace width="0.15em"/><mi>𝒇</mi><mo>·</mo><msub><mover><mi>𝒛</mi><mo>^</mo></mover><mrow><mi>b</mi><mo>,</mo><mtext>now</mtext></mrow></msub>
+</math>
+
+<p>While it is still rotating toward the target it applies only the useful
+component of thrust, so it does not balloon upward mid-manoeuvre.</p>
+
+<figure>
+  <div class="pair">
+    <div><img src="images/tilt_hero.png"></div>
+    <div><img src="images/tilt_side.png"></div>
+  </div>
+  <figcaption>Accelerating between waypoints: the controller tilts the thrust
+  vector to produce horizontal acceleration.</figcaption>
+</figure>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s7">Velocity loop</h2>
+
+<math display="block">
+  <msub><mi>𝒂</mi><mtext>sp</mtext></msub><mo>=</mo>
+  <msub><mi>K</mi><mi>p</mi></msub><mo>(</mo><msub><mi>𝒗</mi><mtext>sp</mtext></msub><mo>−</mo><mi>𝒗</mi><mo>)</mo><mo>+</mo>
+  <msub><mi>K</mi><mi>i</mi></msub><mo>∫</mo><mo>(</mo><msub><mi>𝒗</mi><mtext>sp</mtext></msub><mo>−</mo><mi>𝒗</mi><mo>)</mo><mspace width="0.15em"/><mi>d</mi><mi>t</mi>
+  <mo>−</mo><msub><mi>K</mi><mi>d</mi></msub><msub><mi>𝒂</mi><mtext>meas</mtext></msub>
+</math></div>
+
+<ul>
+  <li><b>P</b> sets the response: 1&nbsp;m/s of velocity error asks for
+      2&nbsp;m/s² (4&nbsp;m/s² vertically).</li>
+  <li><b>I</b> absorbs whatever the model gets wrong: mass error (0.931&nbsp;kg is
+      an estimate until the parts are weighed), wind, and drag. Vertically the
+      integrator effectively learns the true hover thrust, which is why it is
+      stronger on <i>z</i>.</li>
+  <li><b>D</b> acts on the measured acceleration, differentiated from
+      odometry, and only adds a little damping.</li>
+</ul>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s8">Position loop</h2>
+
+<math display="block">
+  <msub><mi>𝒗</mi><mtext>sp</mtext></msub><mo>=</mo><msub><mi>K</mi><mi>p</mi></msub><mo>(</mo><msub><mi>𝒑</mi><mtext>sp</mtext></msub><mo>−</mo><mi>𝒑</mi><mo>)</mo><mo>,</mo><mspace width="1.5em"/>
+  <mo>|</mo><msub><mi>𝒗</mi><mrow><mtext>sp</mtext><mo>,</mo><mi>x</mi><mi>y</mi></mrow></msub><mo>|</mo><mo>≤</mo><mn>3</mn><mtext>&#x2009;m/s</mtext><mo>,</mo><mspace width="1em"/>
+  <mo>−</mo><mn>1</mn><mo>≤</mo><msub><mi>v</mi><mrow><mtext>sp</mtext><mo>,</mo><mi>z</mi></mrow></msub><mo>≤</mo><mn>2</mn><mtext>&#x2009;m/s</mtext>
+</math></div>
+
+<p>A long move has two phases. While the error is large the speed cap is
+active, so the drone cruises at constant speed. Once the error falls below
+3&nbsp;m, the setpoint decays exponentially, by a factor of <i>e</i> per second
+with <i>K</i><sub>p</sub> = 1.</p>
+
+<p>There is no integral term. The velocity integrator already removes steady
+disturbances, and a second integrator would mostly add overshoot.</p>
+
+<p>Figure&nbsp;6 shows the whole cascade on one step:</p>
+<ol>
+  <li>the position error saturates the velocity setpoint;</li>
+  <li>the velocity loop asks for acceleration;</li>
+  <li>the thrust-vector block turns that into about 28° of pitch;</li>
+  <li>the drone pitches back to brake.</li>
+</ol>
+
+<figure>
+  <img src="figures/step_x.svg" style="width: 86%">
+  <figcaption>Step response, goal 4&nbsp;m ahead. Arrives in 3.9&nbsp;s with
+  0.21&nbsp;m overshoot; pitch stays inside the 35° tilt limit.</figcaption>
+</figure>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s9">Modes, estimator and safety</h2>
+
+<p><b>Setpoint modes.</b> The input that arrived most recently wins, as in
+PX4's offboard mode:</p></div>
+<ul>
+  <li><code>/goal_pose</code> enters the cascade at the position loop.</li>
+  <li><code>/cmd_vel</code> (teleop) enters at the velocity loop.</li>
+</ul>
+
+<p>When the stick is centred, or <code>/cmd_vel</code> goes quiet for
+0.5&nbsp;s, the drone first brakes with <b><i>v</i></b><sub>sp</sub> = 0.
+Once slower than 0.3&nbsp;m/s it latches a position hold, so it stops and stays
+put instead of drifting. The yaw setpoint freezes the moment the yaw stick is
+released (Figure&nbsp;7).</p>
+
+<figure>
+  <img src="figures/velocity_mode.svg" style="width: 86%">
+  <figcaption>Velocity mode: 2&nbsp;s of forward stick, then release. The drone
+  brakes and holds position to a few centimetres.</figcaption>
+</figure>
+
+<p><b>Ground and arming.</b> The controller does the following:</p>
+<ul>
+  <li>Disarmed: all rotor speeds are zero.</li>
+  <li>Armed on the ground: the props idle at 10% speed, and the integrators stay
+      reset until something asks to climb, so nothing winds up before take-off.</li>
+  <li>Disarming stops the motors immediately.</li>
+</ul>
+
+<p><b>Failsafe.</b> If odometry stops for more than 0.2&nbsp;s, the drone holds
+level on the gyro-propagated attitude and sinks at 90% of hover thrust.</p>
+
+<p><b>Estimator.</b> <code>/odom</code> is currently Gazebo's ground truth. An
+EKF (for example <code>robot_localization</code>) publishing the same topic
+would drop in without changing the controller. Sensors only ever feed the
+estimator, never the controller.</p>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s10">Results</h2>
+
+<p>The route below was flown with <code>goto.py</code>:</p></div>
+<p class="chain"><code>0,0,1.5 → 3,3,2 → -2,1,1,90° → 2,-2,2,90° → 0,0,2,-90° → 0,0,2,180° → 0,0,1.5</code></p>
+<p>A waypoint counts as reached within 0.15&nbsp;m, below 0.2&nbsp;m/s, and within 5° of yaw.</p>
+
+<figure>
+  <div class="pair">
+    <div style="flex: 0.8"><img src="figures/route_xy.svg"></div>
+    <div><img src="images/route_strobe.png"></div>
+  </div>
+  <figcaption>The route from above (left), and as seen by a fixed camera with
+  every half second of the flight overlaid (right).</figcaption>
+</figure>
+
+<figure>
+  <img src="figures/route_xyz.svg" style="width: 80%">
+  <figcaption>Position against its setpoint over the route.</figcaption>
+</figure>
+
+<figure>
+  <img src="figures/yaw.svg" style="width: 80%">
+  <figcaption>Yaw against its setpoint over the route.</figcaption>
+</figure>
+
+<table>
+  <thead><tr><th>Waypoint</th><th class="num">Time to reach (s)</th><th class="num">Overshoot (m)</th></tr></thead>
+  <tbody>
+    <tr><td>(3, 3, 2)</td><td class="num">4.0</td><td class="num">0.21</td></tr>
+    <tr><td>(−2, 1, 1), yaw 90°</td><td class="num">4.4</td><td class="num">0.20</td></tr>
+    <tr><td>(2, −2, 2), yaw 90°</td><td class="num">4.3</td><td class="num">0.22</td></tr>
+    <tr><td>(0, 0, 2), yaw −90°</td><td class="num">4.0</td><td class="num">0.17</td></tr>
+    <tr><td>(0, 0, 2), yaw 180°</td><td class="num">1.1</td><td class="num">0.00</td></tr>
+    <tr><td>(0, 0, 1.5), yaw 0°</td><td class="num">1.9</td><td class="num">0.00</td></tr>
+  </tbody>
+</table>
+<p class="tcap">Waypoint performance (simulation time).</p>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s11">Compared with Gazebo's built-in controller</h2>
+
+<p><code>controller:=gz</code> still selects Gazebo's
+<code>MulticopterVelocityControl</code>, a geometric controller of the Lee et
+al. type. Its loops are velocity → attitude → rate, all
+proportional-derivative.</p></div>
+
+<table>
+  <thead><tr><th></th><th>Gazebo's controller</th><th>This controller</th></tr></thead>
+  <tbody>
+    <tr><td>Position loop</td><td>none: zero stick means zero velocity, so it slowly drifts</td><td>brakes, then holds a point</td></tr>
+    <tr><td>Integral terms</td><td>none: model errors leave a steady offset</td><td>velocity and rate integrators remove them</td></tr>
+    <tr><td>Thrust priority</td><td>fixed tilt cap</td><td>vertical first, thrust headroom kept</td></tr>
+    <tr><td>Yaw when saturated</td><td>no special handling</td><td>largest share that fits</td></tr>
+    <tr><td>Go-to-goal</td><td>not possible</td><td>built in (<code>/goal_pose</code>)</td></tr>
+    <tr><td>Code</td><td>closed inside a Gazebo plugin</td><td><code>control.hpp</code>, unit tested</td></tr>
+  </tbody>
+</table>
+
+<!-- ======================================================================= -->
+<div class="keep"><h2 id="s12">Tuning guide</h2>
+
+<p>Tune from the inside out: rate, then attitude, then velocity, then position.
+Keep each outer loop about 3–5× slower than the loop inside it.</p></div>
+
+<table>
+  <thead><tr><th>Symptom</th><th>Change in <code>config/controller.yaml</code></th></tr></thead>
+  <tbody>
+    <tr><td>Fast wobble or buzz in hover</td><td>lower <code>rate_p</code>, or raise <code>rate_d</code> slightly</td></tr>
+    <tr><td>Slow, lazy attitude</td><td>raise <code>att_p</code> (keep it below <code>rate_p</code>/3)</td></tr>
+    <tr><td>Overshoots waypoints</td><td>lower <code>vel_max_xy</code> or <code>pos_p</code>, or raise <code>vel_p</code></td></tr>
+    <tr><td>Sags or drifts in altitude</td><td>raise <code>vel_i</code> on <i>z</i></td></tr>
+    <tr><td>Slow, weak yaw</td><td>raise <code>att_p</code>/<code>rate_p</code> on yaw (it is drag-limited)</td></tr>
+  </tbody>
+</table>
+
+<p>Changes take effect after <code>colcon build</code> and a relaunch. The unit
+tests (<code>colcon test --packages-select my_drone</code>) check the mixer's
+signs and scale, the attitude error signs and the tilt limit.</p>
+
+<h2 class="nonum">References</h2>
+<ol>
+  <li>PX4 Autopilot, <em>Controller Diagrams</em>.
+      <a href="https://docs.px4.io/v1.16/en/flight_stack/controller_diagrams">docs.px4.io/v1.16/en/flight_stack/controller_diagrams</a></li>
+  <li>D. Brescianini, M. Hehn, R. D'Andrea, <em>Nonlinear Quadrocopter Attitude
+      Control</em>, ETH Zurich, 2013.</li>
+  <li>T. Lee, M. Leok, N. H. McClamroch, <em>Geometric Tracking Control of a
+      Quadrotor UAV on SE(3)</em>, IEEE CDC, 2010.</li>
+  <li>D. Mellinger, V. Kumar, <em>Minimum Snap Trajectory Generation and Control
+      for Quadrotors</em>, IEEE ICRA, 2011.</li>
+</ol>
+
+</body>
+</html>
