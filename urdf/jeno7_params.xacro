@@ -34,8 +34,9 @@
   <xacro:property name="motor_base_z"  value="-0.0234"/>
 
   <!-- ==================== VELOCITY CONTROLLER ====================
-       F450 gains scaled by I_jeno7/I_f450 per axis (0.49, 0.38, 0.41) and
-       m_jeno7/m_f450 (0.95); gz normalises by both, so same response. -->
+       The F450 tune (git tag f450-final, see build03_params.xacro) scaled by
+       I_jeno7/I_f450 per axis (0.49, 0.38, 0.41) and by mass (0.95); gz
+       normalises gains by both, so the response matches. -->
   <xacro:property name="velocity_gain"     value="2.56 2.56 2.56"/>
   <xacro:property name="attitude_gain"     value="0.99 0.77 0.061"/>
   <xacro:property name="angular_rate_gain" value="0.197 0.154 0.073"/>

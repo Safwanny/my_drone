@@ -33,9 +33,12 @@
   <xacro:property name="motor_base_z"  value="-0.0093"/>
 
   <!-- ==================== VELOCITY CONTROLLER ====================
-       gz divides attitude/rate gains by inertia and velocity gain by mass,
-       so these are the F450 gains scaled by I_build03/I_f450 per axis
-       (0.73, 0.77, 0.71) and m_build03/m_f450 (1.03): same response. -->
+       gz divides attitude/rate gains by inertia and velocity gain by mass.
+       These are the proven F450 tune (git tag f450-final: 0.90 kg,
+       Ixx=Iyy=0.0098, Izz=0.0192; attitude 2.0 2.0 0.15, rate 0.4 0.4 0.18,
+       velocity 2.7) scaled by I_build03/I_f450 per axis (0.73, 0.77, 0.71)
+       and by mass (1.03), so the response matches. If you retune after
+       weighing, scale by the new inertia the same way. -->
   <xacro:property name="velocity_gain"     value="2.79 2.79 2.79"/>
   <xacro:property name="attitude_gain"     value="1.45 1.54 0.106"/>
   <xacro:property name="angular_rate_gain" value="0.29 0.31 0.128"/>

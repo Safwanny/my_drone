@@ -1,4 +1,4 @@
-"""Launch a quad (F450, Build 03 or JeNo 7) in Gazebo Harmonic, bridged to ROS 2.
+"""Launch a quad (Build 03 or JeNo 7) in Gazebo Harmonic, bridged to ROS 2.
 
 Brings up, in order: gz sim with the flight world, robot_state_publisher
 fed from the xacro, the model spawn, the ROS<->GZ bridge, and finally an
@@ -107,8 +107,8 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument(
             "drone",
-            default_value="f450",
-            choices=["f450", "build03", "jeno7"],
+            default_value="build03",
+            choices=["build03", "jeno7"],
             description="Which quad: picks urdf/<drone>.urdf.xacro and "
             "config/bridge_<drone>.yaml, and names the gz model.",
         ),

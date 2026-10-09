@@ -1,4 +1,5 @@
-# ROS 2 <-> Gazebo topic bridge for jeno7 (generated from bridge_f450.yaml: only the model name differs).
+# ROS 2 <-> Gazebo topic bridge for jeno7. bridge_<drone>.yaml files differ only
+# in the model name.
 #
 # Note the asymmetry in naming: Gazebo's MulticopterVelocityControl plugin
 # expects a gz.msgs.Twist on <robotNamespace>/<commandSubTopic>, which is

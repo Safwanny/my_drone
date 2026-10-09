@@ -2,12 +2,12 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>my_drone</name>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <description>
-    F450 quadcopter simulation for ROS 2 Jazzy and Gazebo Harmonic.
-    Airframe parameters derived from the BOM of the ESP32-Flight-controller
-    project; flies under Gazebo's built-in multicopter velocity controller
-    with keyboard teleop.
+    Quadcopter simulation for ROS 2 Jazzy and Gazebo Harmonic. Two CAD-based
+    7-inch airframes (Custom Drone Build 03, the main drone, and WEAREFPV
+    JeNo 7) with spinning props, flown by Gazebo's built-in multicopter
+    velocity controller with keyboard teleop.
   </description>
   <maintainer email="safwan.shaikh@gmail.com">safwan</maintainer>
   <license>Apache-2.0</license>

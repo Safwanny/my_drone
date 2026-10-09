@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Arrow-key teleop for the F450.
+"""Arrow-key teleop for the drones in this package.
 
 Publishes geometry_msgs/Twist on /cmd_vel in the vehicle body frame, which
 is what Gazebo's MulticopterVelocityControl consumes:
@@ -25,7 +25,7 @@ from rclpy.node import Node
 
 BANNER = """
 +----------------------------------------------------------+
-|                   F450 arrow-key teleop                  |
+|                  Drone arrow-key teleop                  |
 +----------------------------------------------------------+
 |                                                          |
 |   Up / Down arrow ...... fly forward / backward          |
