@@ -23,7 +23,7 @@
 <robot name="f450" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:include filename="$(find my_drone)/urdf/f450_params.xacro"/>
-  <xacro:include filename="$(find my_drone)/urdf/f450_gazebo.xacro"/>
+  <xacro:include filename="$(find my_drone)/urdf/quad_gazebo.xacro"/>
 
   <material name="carbon">  <color rgba="0.15 0.15 0.17 1.0"/></material>
   <material name="red_arm"> <color rgba="0.80 0.10 0.10 1.0"/></material>
@@ -146,6 +146,6 @@
   <xacro:rotor number="3" x="${-rotor_xy}" y="${-rotor_xy}"/>  <!-- rear-right,  cw  -->
 
   <!-- ==================== PLUGINS ==================== -->
-  <xacro:f450_gazebo_plugins/>
+  <xacro:quad_gazebo_plugins/>
 
 </robot>

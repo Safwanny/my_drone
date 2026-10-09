@@ -8,7 +8,7 @@
 
   <xacro:include filename="$(find my_drone)/urdf/quad_mesh_common.xacro"/>
   <xacro:include filename="$(find my_drone)/urdf/build03_params.xacro"/>
-  <xacro:include filename="$(find my_drone)/urdf/f450_gazebo.xacro"/>
+  <xacro:include filename="$(find my_drone)/urdf/quad_gazebo.xacro"/>
 
   <material name="frame_grey"><color rgba="0.22 0.22 0.25 1.0"/></material>
 
@@ -57,6 +57,6 @@
 
   <xacro:quad_rotors/>
 
-  <xacro:f450_gazebo_plugins/>
+  <xacro:quad_gazebo_plugins/>
 
 </robot>
