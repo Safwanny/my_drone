@@ -4,7 +4,7 @@
   7040 tri-blade props, both meshes in mm with their axis on the origin and
   their base at z=0.
 
-  Rotor numbering and spin match f450.urdf.xacro and f450_gazebo.xacro, and
+  Rotor numbering and spin match quad_gazebo.xacro, and
   the standard props-in layout seen from above:
 
         FL (2) CW      FR (0) CCW
@@ -33,7 +33,7 @@
   <xacro:property name="max_rot_velocity"     value="2300"/>
   <xacro:property name="rotor_drag_coeff"     value="8.06428e-05"/>
   <xacro:property name="rolling_moment_coeff" value="1.0e-6"/>
-  <!-- Heavier 7" props spool slower than the F450's 8045s. -->
+  <!-- 7" props are heavy; spool-up/down a little slower than 5" racers. -->
   <xacro:property name="time_constant_up"     value="0.020"/>
   <xacro:property name="time_constant_down"   value="0.035"/>
 
@@ -75,7 +75,8 @@
         </geometry>
         <material name="nut_red"/>
       </visual>
-      <!-- No collision on the props, same as the F450. -->
+      <!-- No collision on the props: a spinning disc hitting the frame
+           only costs solver time. -->
     </link>
     <joint name="rotor_${number}_joint" type="continuous">
       <parent link="base_link"/>

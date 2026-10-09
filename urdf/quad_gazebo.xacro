@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   Gazebo Harmonic (gz-sim 8) plugin blocks, shared by every quad in this
-  package (f450, build03, jeno7). All numbers come from <drone>_params.xacro.
+  package. All numbers come from <drone>_params.xacro.
 
   Two layers are declared here:
 
@@ -51,7 +51,7 @@
     </rotor>
   </xacro:macro>
 
-  <xacro:macro name="f450_gazebo_plugins" params="">
+  <xacro:macro name="quad_gazebo_plugins" params="">
 
     <xacro:motor_plugin number="0" direction="ccw"/>
     <xacro:motor_plugin number="1" direction="ccw"/>
