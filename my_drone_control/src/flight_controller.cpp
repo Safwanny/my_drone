@@ -1,6 +1,5 @@
-// Flight controller node: replaces Gazebo's MulticopterVelocityControl with
-// our own cascade (control.hpp) and drives the MulticopterMotorModel rotors
-// directly through /motor_speed.
+// Flight controller node: our own cascade (control.hpp), driving the
+// MulticopterMotorModel rotors directly through /motor_speed.
 //
 // Topics are relative, so the node can be pushed into a namespace.
 //

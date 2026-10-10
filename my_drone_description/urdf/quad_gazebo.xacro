@@ -3,20 +3,12 @@
   Gazebo Harmonic (gz-sim 8) plugin blocks, shared by every quad in this
   package. All numbers come from <drone>_params.xacro.
 
-  Two layers are declared here:
-
-    1. MulticopterMotorModel  x4 - turns a commanded rotor velocity into
-       thrust and drag torque. This is the "ESC + motor + prop" model.
-
-    2. The controller that drives those four motors. With the xacro arg
-       controller:=custom (default) that is our flight_controller node,
-       which reads the <quad_physics> element below and publishes rotor
-       speeds. controller:=gz uses Gazebo's built-in
-       MulticopterVelocityControl instead (kept for A/B comparison).
+  MulticopterMotorModel x4 turns a commanded rotor velocity into thrust and
+  drag torque (the "ESC + motor + prop" model). The commands come from our
+  flight_controller (which reads the <quad_physics> element below) or from
+  PX4, on the same gz topic. Then the sensors and the exact-state odometry.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-
-  <xacro:arg name="controller" default="custom"/>
 
   <!-- ============ Motor model, instantiated once per rotor ============ -->
   <xacro:macro name="motor_plugin" params="number direction">
@@ -42,17 +34,6 @@
     </gazebo>
   </xacro:macro>
 
-  <!-- direction 1 == ccw, -1 == cw, and must agree with turningDirection above.
-       Diagonally opposite rotors share a direction so yaw torque cancels. -->
-  <xacro:macro name="rotor_config_entry" params="number dir">
-    <rotor>
-      <jointName>rotor_${number}_joint</jointName>
-      <forceConstant>${motor_constant}</forceConstant>
-      <momentConstant>${moment_constant}</momentConstant>
-      <direction>${dir}</direction>
-    </rotor>
-  </xacro:macro>
-
   <xacro:macro name="quad_gazebo_plugins" params="">
 
     <xacro:motor_plugin number="0" direction="ccw"/>
@@ -75,39 +56,6 @@
       <rotor number="2" x="${rotor_x_front}" y="${ rotor_y}" direction="-1"/>
       <rotor number="3" x="${rotor_x_rear}"  y="${-rotor_y}" direction="-1"/>
     </quad_physics>
-
-    <xacro:if value="${'$(arg controller)' == 'gz'}">
-    <!-- ============ Built-in velocity / attitude controller ============
-         Gains and limits come from <drone>_params.xacro. They are the
-         numbers most likely to need a tuning pass if the drone feels
-         sluggish (raise) or oscillates (lower).
-         Subscribes on:  /${robot_ns}/gazebo/command/twist
-         Enable on:      /${robot_ns}/enable                             -->
-    <gazebo>
-      <plugin filename="gz-sim-multicopter-control-system"
-              name="gz::sim::systems::MulticopterVelocityControl">
-        <robotNamespace>${robot_ns}</robotNamespace>
-        <commandSubTopic>gazebo/command/twist</commandSubTopic>
-        <enableSubTopic>enable</enableSubTopic>
-        <comLinkName>base_link</comLinkName>
-
-        <velocityGain>${velocity_gain}</velocityGain>
-        <attitudeGain>${attitude_gain}</attitudeGain>
-        <angularRateGain>${angular_rate_gain}</angularRateGain>
-
-        <maximumLinearAcceleration>${max_linear_accel}</maximumLinearAcceleration>
-        <maximumLinearVelocity>${max_linear_vel}</maximumLinearVelocity>
-        <maximumAngularVelocity>${max_angular_vel}</maximumAngularVelocity>
-
-        <rotorConfiguration>
-          <xacro:rotor_config_entry number="0" dir="1"/>
-          <xacro:rotor_config_entry number="1" dir="1"/>
-          <xacro:rotor_config_entry number="2" dir="-1"/>
-          <xacro:rotor_config_entry number="3" dir="-1"/>
-        </rotorConfiguration>
-      </plugin>
-    </gazebo>
-    </xacro:if>
 
     <!-- ============ Odometry: the exact state (ground truth) ============ -->
     <gazebo>
