@@ -5,12 +5,18 @@
 // Topics are relative, so the node can be pushed into a namespace.
 //
 // In:  /enable    std_msgs/Bool                 arm / disarm
+//      /land      std_msgs/Empty                descend, disarm on touchdown
 //      /cmd_vel   geometry_msgs/Twist           velocity mode: heading-frame
 //                                               vx vy vz (m/s) + yaw rate
 //      /goal_pose geometry_msgs/PoseStamped     position mode (odom frame)
 //      /odom      nav_msgs/Odometry             state estimate (50 Hz)
 //      /imu       sensor_msgs/Imu               gyro; each sample runs the loop
 // Out: /motor_speed actuator_msgs/Actuators     rotor speeds, rad/s
+//      /armed       std_msgs/Bool (latched)       armed state, on change
+//
+// /enable false is the motor kill: props stop at once, even in the air.
+// Touchdown (asked down, not moving, low thrust, near the ground) disarms
+// in every mode, so landing never depends on the client staying alive.
 //
 // Like a real FC the loop is triggered by the gyro, and attitude is the last
 // estimate propagated with the gyro until the next /odom arrives.
@@ -28,6 +34,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/empty.hpp"
 
 #include "my_drone_control/control.hpp"
 
@@ -111,6 +118,10 @@ public:
     const double a_full = 4.0 * mixer_.f_max / af_.mass;
     a_max_ = ranged("thrust_max_fraction", 0.8, 0.3, 1.0, "of full thrust") * a_full;
     takeoff_alt_ = ranged("default_goal_alt", 1.5, 0.3, 50.0, "m, z=0 goal before take-off");
+    alt_max_ = ranged("alt_max", 30.0, 1.0, 500.0, "m, goals above are rejected");
+    land_speed_ = ranged("land_speed", 0.3, 0.1, 1.0, "m/s descent near the ground");
+    land_slow_alt_ = ranged("land_slow_alt", 0.6, 0.1, 5.0,
+      "m above the odom origin: slow landing and touchdown detection below");
     cmd_timeout_ = ranged("cmd_vel_timeout", 0.5, 0.05, 5.0, "s without cmd_vel -> hold");
     odom_timeout_ = ranged("odom_timeout", 0.2, 0.02, 2.0, "s without odom -> level descent");
 
@@ -119,6 +130,10 @@ public:
       af_.mass, std::sqrt(af_.mass * fc::kG / 4.0 / af_.motor_constant), a_full / fc::kG);
 
     motor_pub_ = create_publisher<actuator_msgs::msg::Actuators>("motor_speed", 10);
+    armed_pub_ = create_publisher<std_msgs::msg::Bool>(
+      "armed", rclcpp::QoS(1).reliable().transient_local());
+    set_armed(false);
+    create_sub<std_msgs::msg::Empty>("land", &FlightController::on_land);
     create_sub<std_msgs::msg::Bool>("enable", &FlightController::on_enable);
     create_sub<geometry_msgs::msg::Twist>("cmd_vel", &FlightController::on_cmd_vel);
     create_sub<geometry_msgs::msg::PoseStamped>("goal_pose", &FlightController::on_goal);
@@ -129,7 +144,7 @@ public:
   }
 
 private:
-  enum class Mode { kPosition, kVelocity };
+  enum class Mode { kPosition, kVelocity, kLand };
 
   // Scalar parameter the parameter server range-checks (bad YAML fails at start).
   double ranged(const std::string & name, double def, double lo, double hi, const char * desc)
@@ -152,9 +167,32 @@ private:
   void on_enable(const std_msgs::msg::Bool & m)
   {
     if (m.data == armed_) return;
-    armed_ = m.data;
+    if (!m.data && airborne_) RCLCPP_WARN(get_logger(), "motor kill in the air");
+    set_armed(m.data);
+  }
+
+  void set_armed(bool armed)
+  {
+    armed_ = armed;
     airborne_ = false;
-    RCLCPP_INFO(get_logger(), armed_ ? "armed" : "disarmed");
+    still_ = 0.0;
+    if (!armed) mode_ = Mode::kPosition;  // next arm starts holding, not landing
+    std_msgs::msg::Bool m;
+    m.data = armed;
+    armed_pub_->publish(m);
+    RCLCPP_INFO(get_logger(), armed ? "armed" : "disarmed");
+  }
+
+  void on_land(const std_msgs::msg::Empty &)
+  {
+    if (!armed_ || mode_ == Mode::kLand) return;
+    if (!airborne_) {
+      set_armed(false);  // already down
+      return;
+    }
+    p_sp_ = p_;  // hold x, y while descending
+    mode_ = Mode::kLand;
+    RCLCPP_INFO(get_logger(), "landing");
   }
 
   void on_cmd_vel(const geometry_msgs::msg::Twist & m)
@@ -168,6 +206,11 @@ private:
   void on_goal(const geometry_msgs::msg::PoseStamped & m)
   {
     const auto & p = m.pose.position;
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || p.z < 0.0 || p.z > alt_max_) {
+      RCLCPP_WARN(get_logger(), "goal %.2f %.2f %.2f rejected: z must be 0..%.0f m",
+        p.x, p.y, p.z, alt_max_);
+      return;
+    }
     // RViz's 2D Goal Pose arrives with z = 0: keep the altitude we fly at.
     const double z = p.z > 0.01 ? p.z : (airborne_ ? p_sp_.z() : takeoff_alt_);
     p_sp_ = Vec3(p.x, p.y, z);
@@ -248,6 +291,18 @@ private:
       const auto ta = fc::thrust_attitude(a_sp, yaw_sp_, q_, af_.mass, tilt_max_, a_max_);
       collective = ta.collective;
       q_sp = ta.q_sp;
+
+      // Touchdown: asked down, not moving, thrust well under hover, near the
+      // ground. Ground = odom origin height; landing on anything else needs a
+      // range sensor.
+      const bool down = v_sp.z() < -0.1 && std::abs(v_.z()) < 0.1 &&
+        collective < 0.9 * af_.mass * fc::kG && p_.z() < land_slow_alt_;
+      still_ = down ? still_ + dt : 0.0;
+      if (still_ > 0.5) {
+        RCLCPP_INFO(get_logger(), "touchdown");
+        set_armed(false);
+        return Eigen::Vector4d::Zero();
+      }
     }
     const Vec3 w_sp = att_.rate_setpoint(q_sp, q_);
     const Vec3 torque = rate_.torque(w_sp, w, w_dot_, af_.inertia, dt);
@@ -258,6 +313,11 @@ private:
   // brakes, then latches a position hold, as PX4's Position mode does.
   Vec3 velocity_setpoint(const rclcpp::Time & t, double yaw, double dt)
   {
+    if (mode_ == Mode::kLand) {
+      Vec3 v = pos_.velocity_setpoint(p_sp_, p_);
+      v.z() = -(p_.z() > land_slow_alt_ ? pos_.vel_max_down : land_speed_);
+      return v;
+    }
     if (mode_ == Mode::kVelocity) {
       const bool fresh = (t - last_cmd_).seconds() < cmd_timeout_;
       const bool yaw_stick = fresh && std::abs(cmd_yaw_rate_) > 1e-3;
@@ -299,6 +359,7 @@ private:
   fc::AttitudeControl att_;
   fc::RateControl rate_;
   double tilt_max_, a_max_, takeoff_alt_, cmd_timeout_, odom_timeout_;
+  double alt_max_, land_speed_, land_slow_alt_, still_ = 0.0;
 
   bool armed_ = false, airborne_ = false, have_odom_ = false, yawing_ = false;
   Mode mode_ = Mode::kPosition;
@@ -311,6 +372,7 @@ private:
   last_imu_{0, 0, RCL_ROS_TIME};
 
   rclcpp::Publisher<actuator_msgs::msg::Actuators>::SharedPtr motor_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr armed_pub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subs_;
 };

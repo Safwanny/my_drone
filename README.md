@@ -61,9 +61,21 @@ ros2 run my_drone_teleop arrow_teleop
 | `q` / Ctrl+C | land, stop the motors, quit (Ctrl+C twice: stop motors now) |
 
 The drone spawns disarmed with its props still. Teleop arms it when it
-starts (props spin up to idle-hover speed); quitting teleop lands the drone
-if it is airborne and then disarms it, so the props stop. Your terminal is
-restored either way.
+starts (props spin up to idle-hover speed); quitting teleop sends `/land`,
+and the controller descends and disarms on touchdown, so the props stop.
+Your terminal is restored either way.
+
+Land or kill from anywhere:
+
+```bash
+ros2 topic pub --once /land std_msgs/msg/Empty
+```
+```bash
+ros2 topic pub --once /enable std_msgs/msg/Bool "{data: false}"
+```
+
+The first lands and disarms; the second stops the motors at once, in the
+air too.
 
 Stop the sim with Ctrl+C in the launch terminal or by closing the Gazebo
 window: either stops everything. Any process a crashed session left behind
@@ -71,7 +83,9 @@ is cleared at the next launch.
 
 Go to goal, in a second terminal: each waypoint is `x,y,z[,yaw_deg]` in
 the odom frame. The script arms the drone, flies the waypoints in order and
-prints the time and overshoot for each, then leaves it hovering.
+prints the time and overshoot for each, then leaves it hovering. Ctrl+C
+(or a waypoint that times out) lands it instead; Ctrl+C again kills the
+motors. Waypoints need 0 < z <= 30 m.
 
 ```bash
 ros2 run my_drone_teleop goto 0,0,2 3,3,2 -2,1,1,90 0,0,0.3
@@ -92,7 +106,9 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 |---|---|---|
 | `/cmd_vel` | `geometry_msgs/Twist` (heading-frame velocity + yaw rate) | in |
 | `/goal_pose` | `geometry_msgs/PoseStamped` (position + yaw, odom frame) | in |
-| `/enable` | `std_msgs/Bool` (arm / disarm) | in |
+| `/enable` | `std_msgs/Bool` (arm / disarm; false = motor kill) | in |
+| `/land` | `std_msgs/Empty` (descend, disarm on touchdown) | in |
+| `/armed` | `std_msgs/Bool` (latched, on change) | out |
 | `/motor_speed` | `actuator_msgs/Actuators` (rotor speeds, rad/s) | controller → gz |
 | `/odom` | `nav_msgs/Odometry` | out |
 | `/imu` | `sensor_msgs/Imu` | out |
@@ -119,6 +135,9 @@ use, in physical units:
   holds position.
 - On the ground it idles until something asks to climb. If `/odom` stops it
   levels out and sinks slowly. Disarm stops the motors at once.
+- Touchdown (asked down, not moving, thrust under hover, below
+  `land_slow_alt`) disarms in every mode, so landing does not depend on the
+  client staying alive. Goals below 0 or above `alt_max` are rejected.
 - Mass, inertia, motor constants and rotor layout come from the
   `<quad_physics>` element `quad_gazebo.xacro` writes into the URDF, so they
   always match the Gazebo model. Gains are in `my_drone_control/config/controller.yaml`

@@ -45,20 +45,24 @@ from launch_ros.substitutions import FindPackageShare
 
 
 # Every process this launch starts inherits this variable, including the
-# ones gz forks behind launch's back, so stragglers can always be found.
+# ones gz forks behind launch's back, so stragglers can always be found. Its
+# value is the launch's PID, so a session shutting down only sweeps its own
+# processes, not those of a new session started meanwhile.
 MARKER = "MY_DRONE_SIM"
 
 
-def marked_pids():
-    """PIDs (ours, other than this launch) whose environment carries MARKER."""
+def marked_pids(session=None):
+    """PIDs (ours, other than this launch) tagged with MARKER, by any session
+    or only by `session`."""
     me = os.getpid()
+    tag = (MARKER + "=" + (f"{session}\0" if session else "")).encode()
     pids = []
     for d in os.listdir("/proc"):
         if not d.isdigit() or int(d) == me:
             continue
         try:
             with open(f"/proc/{d}/environ", "rb") as f:
-                if (MARKER + "=").encode() in f.read():
+                if tag in f.read():
                     pids.append(int(d))
         except OSError:  # gone, or not ours
             pass
@@ -78,7 +82,7 @@ def kill_stragglers(context, when):
     Gazebo window's Ruby wrapper forks the real GUI in its own process
     group), so terminate the rest here.
     """
-    pids = marked_pids()
+    pids = marked_pids(os.getpid() if when == "on exit" else None)
     if when == "on exit":
         # Direct children are launch's job; it SIGINTs them and escalates.
         children = set(map(int, subprocess.run(
@@ -239,7 +243,7 @@ def generate_launch_description():
     # Clear leftovers from an earlier session before starting anything, tag
     # everything we start, and sweep up whatever outlives the launch.
     clean_start = OpaqueFunction(function=kill_stragglers, args=["at startup"])
-    tag = SetEnvironmentVariable(MARKER, "1")
+    tag = SetEnvironmentVariable(MARKER, str(os.getpid()))
     clean_exit = RegisterEventHandler(
         OnShutdown(
             on_shutdown=[OpaqueFunction(function=kill_stragglers, args=["on exit"])]

@@ -15,8 +15,9 @@ quiet, so a dropped keypress leaves the drone hovering rather than
 drifting away.
 
 Teleop owns arming: it arms the controller (/enable true) when it starts.
-On quit (q or Ctrl+C) it lands the drone if airborne, then disarms, which
-stops the props. A second Ctrl+C while landing disarms immediately.
+On quit (q or Ctrl+C) it sends /land; the controller descends and disarms
+on touchdown, which stops the props. A second Ctrl+C while landing kills
+the motors at once (/enable false).
 """
 
 import select
@@ -30,7 +31,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
-from std_msgs.msg import Bool
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import Bool, Empty
 
 BANNER = """
 +----------------------------------------------------------+
@@ -71,14 +73,8 @@ PUBLISH_HZ = 20.0
 # Hold a setpoint this long after the last keypress, then ease back to hover.
 HOLD_SECONDS = 0.6
 
-# Landing on quit: descend fast high up, gently near the ground, and call it
-# landed once the vertical speed has stayed ~0 for LANDED_SECONDS.
-LAND_FAST = 1.0       # m/s above SLOW_BELOW
-LAND_SLOW = 0.3       # m/s below SLOW_BELOW
-SLOW_BELOW = 0.6      # m (odom z, ground at 0)
-LANDED_VZ = 0.05      # m/s
-LANDED_SECONDS = 0.5
-LAND_TIMEOUT = 30.0   # s, then disarm regardless
+LAND_TIMEOUT = 30.0   # s for the controller to report touchdown, then kill
+GZ_CUT_ALT = 0.12     # m odom z (resting ~0.05): controller:=gz cuts motors here
 
 
 class ArrowTeleop(Node):
@@ -86,13 +82,17 @@ class ArrowTeleop(Node):
         super().__init__("arrow_teleop")
         self.pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.enable_pub = self.create_publisher(Bool, "/enable", 10)
+        self.land_pub = self.create_publisher(Empty, "/land", 10)
         self.create_subscription(Odometry, "/odom", self.on_odom, 10)
+        self.armed = None  # None: no flight_controller heard (e.g. controller:=gz)
+        self.create_subscription(
+            Bool, "/armed", lambda m: setattr(self, "armed", m.data),
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.cmd = [0.0, 0.0, 0.0, 0.0]
         self.scale = 1.0
         self.ticks_since_key = 0
         self.hold_ticks = int(HOLD_SECONDS * PUBLISH_HZ)
         self.z = None
-        self.vz = None
         self.timer = self.create_timer(1.0 / PUBLISH_HZ, self.tick)
         # Re-send the arm request now and then: the bridge may come up after
         # us, and a single message would be lost.
@@ -100,7 +100,6 @@ class ArrowTeleop(Node):
 
     def on_odom(self, msg):
         self.z = msg.pose.pose.position.z
-        self.vz = msg.twist.twist.linear.z
 
     def set_armed(self, armed):
         self.enable_pub.publish(Bool(data=armed))
@@ -136,35 +135,34 @@ class ArrowTeleop(Node):
         )
 
     def land_and_disarm(self):
-        """Descend until the drone stops moving vertically, then disarm."""
+        """Ask the controller to land; it disarms on touchdown."""
         self.destroy_timer(self.timer)       # stop the normal setpoint stream
         self.destroy_timer(self.arm_timer)
+        self.send()
         if self.z is None:
             print("\nno /odom (is the sim running?), disarming")
         else:
             print(f"\nlanding from z={self.z:.2f} m ... (Ctrl+C again to cut motors now)")
             try:
                 start = time.monotonic()
-                still_since = None
                 while time.monotonic() - start < LAND_TIMEOUT:
-                    speed = LAND_FAST if self.z > SLOW_BELOW else LAND_SLOW
-                    self.send(vz=-speed)
-                    rclpy.spin_once(self, timeout_sec=1.0 / PUBLISH_HZ)
-                    moving = abs(self.vz) > LANDED_VZ
-                    if moving or time.monotonic() - start < 1.0:
-                        still_since = None
-                    elif still_since is None:
-                        still_since = time.monotonic()
-                    elif time.monotonic() - still_since > LANDED_SECONDS:
-                        print(f"landed (z={self.z:.2f} m)")
+                    if self.armed is False:
                         break
+                    if self.armed is None:
+                        # controller:=gz has no /land: fly it down, cut near the ground.
+                        if self.z < GZ_CUT_ALT:
+                            break
+                        self.send(vz=-0.5)
+                    else:
+                        self.land_pub.publish(Empty())  # repeated: one may be lost
+                    rclpy.spin_once(self, timeout_sec=1.0 / PUBLISH_HZ)
                 else:
                     print("landing timed out")
+                print(f"landed (z={self.z:.2f} m)")
             except KeyboardInterrupt:
                 print("landing skipped")
-        self.send()
         # Several sends: this is the message that stops the props, and it
-        # must not be lost to a slow subscriber.
+        # must not be lost to a slow subscriber. A no-op if already disarmed.
         for _ in range(5):
             self.set_armed(False)
             rclpy.spin_once(self, timeout_sec=0.02)
