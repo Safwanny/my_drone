@@ -20,10 +20,14 @@ launch-spawned process does not get. Run it yourself in a second terminal:
 """
 
 import os
+import shutil
 import signal
 import subprocess
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import (
     AppendEnvironmentVariable,
@@ -106,18 +110,43 @@ def kill_stragglers(context, when):
 PX4_AIRFRAME = "4950_gz_build03"
 
 
+def px4_build():
+    return os.path.join(
+        os.environ.get("PX4_DIR", os.path.expanduser("~/PX4-Autopilot")),
+        "build", "px4_sitl_default")
+
+
+def check_px4(context):
+    """With controller:=px4, fail before anything starts if a piece is missing.
+
+    Otherwise launch dies halfway and leaves gz running.
+    """
+    if LaunchConfiguration("controller").perform(context) != "px4":
+        return []
+    missing = []
+    try:
+        get_package_share_directory("my_drone_px4")
+    except PackageNotFoundError:
+        missing.append("ROS package my_drone_px4")
+    if not shutil.which("MicroXRCEAgent"):
+        missing.append("MicroXRCEAgent (package microxrcedds_agent)")
+    if not os.path.exists(os.path.join(px4_build(), "bin", "px4")):
+        missing.append(f"PX4 SITL build in {px4_build()} (or set PX4_DIR)")
+    if missing:
+        raise RuntimeError(
+            "controller:=px4 needs: " + "; ".join(missing) + ". Build them (README, "
+            "PX4 SITL), then `source ~/ros2_ws/install/setup.bash` in this terminal.")
+    return []
+
+
 def start_px4(context):
     """Run PX4 SITL from $PX4_DIR (default ~/PX4-Autopilot) on our airframe.
 
     PX4 only reads airframes from its own build tree, so link ours in there
     rather than patching PX4's sources.
     """
-    build = os.path.join(
-        os.environ.get("PX4_DIR", os.path.expanduser("~/PX4-Autopilot")),
-        "build", "px4_sitl_default")
+    build = px4_build()
     px4_bin = os.path.join(build, "bin", "px4")
-    if not os.path.exists(px4_bin):
-        raise RuntimeError(f"no PX4 SITL build at {build}: see README, PX4 SITL")
     src = os.path.join(get_package_share_directory("my_drone_px4"), "airframes", PX4_AIRFRAME)
     dst = os.path.join(build, "etc", "init.d-posix", "airframes", PX4_AIRFRAME)
     if os.path.lexists(dst):
@@ -341,7 +370,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         args
-        + [clean_start, tag, clean_exit, mesh_path]
+        + [OpaqueFunction(function=check_px4), clean_start, tag, clean_exit, mesh_path]
         + [gz_server, gz_gui, robot_state_publisher, bridge, spawn,
            sensor_realism, truth_odom, flight_controller, px4, dds_agent,
            offboard_adapter, rviz]

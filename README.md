@@ -173,6 +173,11 @@ flies on that estimate. It is there to compare against our controller.
 ros2 launch my_drone_bringup sim.launch.py controller:=px4
 ```
 
+It needs the one-time setup below, and a terminal sourced after that build
+(`source ~/ros2_ws/install/setup.bash`): a terminal sourced earlier does not
+see `my_drone_px4` or `MicroXRCEAgent`, and the launch stops with a message
+saying which is missing.
+
 This starts PX4 attached to the model the launch spawns, on our airframe
 `my_drone_px4/airframes/4950_gz_build03` (rotor geometry, motor range,
 hover thrust, rate gains scaled for this airframe; PX4 only reads airframes
