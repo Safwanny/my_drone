@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>my_drone_px4</name>
+  <version>0.4.0</version>
+  <maintainer email="safwan.shaikh@gmail.com">safwan</maintainer>
+  <license>Apache-2.0</license>
+  <description>
+    PX4 side of the Build 03 Prototype: its SITL airframe and an offboard
+    adapter that flies PX4 through the same topics as our flight_controller.
+  </description>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>px4_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>microxrcedds_agent</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -2,8 +2,8 @@
 """Arrow-key teleop for the drones in this package.
 
 Publishes geometry_msgs/Twist on /cmd_vel in the vehicle's heading frame,
-which flight_controller (or Gazebo's MulticopterVelocityControl, with
-controller:=gz) flies as a velocity setpoint:
+which the flight stack (flight_controller, or PX4 through offboard_adapter)
+flies as a velocity setpoint:
 
     linear.x   forward / back velocity   (m/s)
     linear.y   left / right velocity     (m/s)
@@ -74,7 +74,6 @@ PUBLISH_HZ = 20.0
 HOLD_SECONDS = 0.6
 
 LAND_TIMEOUT = 30.0   # s for the controller to report touchdown, then kill
-GZ_CUT_ALT = 0.12     # m odom z (resting ~0.05): controller:=gz cuts motors here
 
 
 class ArrowTeleop(Node):
@@ -84,7 +83,7 @@ class ArrowTeleop(Node):
         self.enable_pub = self.create_publisher(Bool, "/enable", 10)
         self.land_pub = self.create_publisher(Empty, "/land", 10)
         self.create_subscription(Odometry, "/odom", self.on_odom, 10)
-        self.armed = None  # None: no flight_controller heard (e.g. controller:=gz)
+        self.armed = None  # None: no flight stack heard
         self.create_subscription(
             Bool, "/armed", lambda m: setattr(self, "armed", m.data),
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -139,26 +138,16 @@ class ArrowTeleop(Node):
         self.destroy_timer(self.timer)       # stop the normal setpoint stream
         self.destroy_timer(self.arm_timer)
         self.send()
-        if self.z is None:
-            print("\nno /odom (is the sim running?), disarming")
+        if self.z is None or self.armed is None:
+            print("\nno /odom or /armed (is the sim running?), disarming")
         else:
             print(f"\nlanding from z={self.z:.2f} m ... (Ctrl+C again to cut motors now)")
             try:
                 start = time.monotonic()
-                while time.monotonic() - start < LAND_TIMEOUT:
-                    if self.armed is False:
-                        break
-                    if self.armed is None:
-                        # controller:=gz has no /land: fly it down, cut near the ground.
-                        if self.z < GZ_CUT_ALT:
-                            break
-                        self.send(vz=-0.5)
-                    else:
-                        self.land_pub.publish(Empty())  # repeated: one may be lost
+                while self.armed and time.monotonic() - start < LAND_TIMEOUT:
+                    self.land_pub.publish(Empty())  # repeated: one may be lost
                     rclpy.spin_once(self, timeout_sec=1.0 / PUBLISH_HZ)
-                else:
-                    print("landing timed out")
-                print(f"landed (z={self.z:.2f} m)")
+                print("landed" if not self.armed else "landing timed out")
             except KeyboardInterrupt:
                 print("landing skipped")
         # Several sends: this is the message that stops the props, and it

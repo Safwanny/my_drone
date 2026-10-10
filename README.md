@@ -15,8 +15,9 @@ sim: **[docs/controller.pdf](docs/controller.pdf)**.
 |---|---|
 | ![RViz: body and rotor frames](docs/images/rviz.png) | ![RViz: odometry trail of a waypoint route](docs/images/rviz_route.png) |
 
-Gazebo's built-in velocity controller is still available with
-`controller:=gz`, for comparison.
+It also flies on PX4 v1.17 (SITL, EKF2 on simulated sensors) with
+`controller:=px4`, through the same topics, so every tool and mission
+runs on either flight stack.
 
 Props spin in the standard props-in pattern, seen from above:
 front-left CW, front-right CCW, rear-left CCW, rear-right CW.
@@ -42,9 +43,8 @@ ros2 launch my_drone_bringup sim.launch.py
 ```
 
 Options: `rviz:=false`, `headless:=true` (no Gazebo window), `z:=0.5`
-(spawn height), `controller:=gz` (Gazebo's built-in velocity controller
-instead of ours; no `/goal_pose` then), `controller:=px4` (PX4 SITL, see
-below).
+(spawn height), `controller:=px4` (PX4 SITL instead of our controller,
+see below).
 
 Fly, in a second terminal (needs a real keyboard/TTY):
 
@@ -111,7 +111,7 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 | `/land` | `std_msgs/Empty` (descend, disarm on touchdown) | in |
 | `/armed` | `std_msgs/Bool` (latched, on change) | out |
 | `/motor_speed` | `actuator_msgs/Actuators` (rotor speeds, rad/s) | controller → gz |
-| `/odom` | `nav_msgs/Odometry` (state the controller flies on; exact for now) | out |
+| `/odom` | `nav_msgs/Odometry` (state the flight stack flies on: exact for ours, EKF2's with PX4) | out |
 | `/ground_truth/odom` | `nav_msgs/Odometry` (exact state, for scoring only) | out |
 | `/imu` | `sensor_msgs/Imu` (250 Hz; no orientation) | out |
 | `/air_pressure` | `sensor_msgs/FluidPressure` (50 Hz) | out |
@@ -154,22 +154,39 @@ checks in `my_drone_control/test/test_control.cpp`. Scalar limits
 (`tilt_max_deg`, timeouts, ...) are range-checked by the parameter server,
 so a bad value fails at start-up.
 
-## PX4 SITL (work in progress)
+## PX4 SITL
 
-PX4 v1.17.0 is being brought in as a second flight stack (EKF2 on
-simulated sensors), to fly next to our controller for comparison. PX4
-flies the Build 03 Prototype from its own console; driving it from
-`goto` / teleop (offboard over ROS 2) is next.
-
-`controller:=px4` starts PX4 attached to the model the launch spawns, on
-our airframe `my_drone_bringup/px4/4950_gz_build03` (rotor geometry, motor
-range, hover thrust, rate gains scaled for this airframe). PX4 only reads
-airframes from its build tree, so the launch links the file in there. PX4
-is looked for in `~/PX4-Autopilot`, or `$PX4_DIR`.
+PX4 v1.17.0 is the second flight stack: EKF2 estimates the state from the
+simulated IMU, barometer, magnetometer and GNSS, and PX4's own cascade
+flies on that estimate. It is there to compare against our controller.
 
 ```bash
 ros2 launch my_drone_bringup sim.launch.py controller:=px4
 ```
+
+This starts PX4 attached to the model the launch spawns, on our airframe
+`my_drone_px4/airframes/4950_gz_build03` (rotor geometry, motor range,
+hover thrust, rate gains scaled for this airframe; PX4 only reads airframes
+from its build tree, so the launch links the file in there), plus the
+uXRCE-DDS agent and `offboard_adapter`. PX4 is looked for in
+`~/PX4-Autopilot`, or `$PX4_DIR`.
+
+`offboard_adapter` flies PX4 in offboard mode from our topics, so `goto`
+and `arrow_teleop` work unchanged: `/enable` arms (or kills), `/land`
+switches PX4 to Land (it disarms on touchdown), `/goal_pose` and `/cmd_vel`
+become offboard setpoints, and `/odom` and `/armed` come from PX4. Goals
+and `/odom` are in the gz world frame for both stacks (the adapter goes
+through EKF2's lat/lon/alt origin), so `/odom` compares directly with
+`/ground_truth/odom`.
+
+Differences to expect from our controller: PX4 ramps its takeoff in over
+a few seconds, and if it leaves offboard on its own (Land, a failsafe) the
+adapter stops sending setpoints until a new goal or `/cmd_vel` arrives.
+
+Seen so far, for the estimation campaign: EKF2 uses GNSS as its height
+reference, and with our noisy GNSS its height estimate runs about 1 m
+below the ground after touchdown, recovering over ~15 s; in flight it is
+within ~0.1 m.
 
 PX4's console commands, from a second terminal with ROS sourced:
 
@@ -217,15 +234,16 @@ source ~/ros2_ws/install/setup.bash && MicroXRCEAgent udp4 -p 8888
 
 ## Layout
 
-Four packages, split by what they depend on: the controller builds and
-tests without Gazebo, and the description can be reused on hardware.
+Five packages, split by what they depend on: the controller builds and
+tests without Gazebo, the description can be reused on hardware, and
+everything PX4-specific sits in one place.
 
 ```
 my_drone_description/   the model, no runtime deps beyond xacro
   urdf/quad_mesh_common.xacro  motor/prop physics + spinning prop macros
-  urdf/quad_gazebo.xacro       gz plugins: motor models, IMU, odom; <quad_physics>
-                               for our controller; gz velocity controller if controller:=gz
-  urdf/build03_params.xacro    mass, inertia, rotor positions (gz controller gains)
+  urdf/quad_gazebo.xacro       gz plugins: motor models, sensors (IMU, baro, mag, GNSS),
+                               exact odometry; <quad_physics> for our controller
+  urdf/build03_params.xacro    mass, inertia, rotor positions
   urdf/build03.urdf.xacro      frame meshes + collision boxes
   meshes/                      STLs (mm) copied from the CAD folders
 my_drone_control/       flight controller (C++)
@@ -233,6 +251,10 @@ my_drone_control/       flight controller (C++)
   src/flight_controller.cpp              node: topics, modes, failsafes
   config/controller.yaml                 gains and limits
   test/test_control.cpp                  gtest sign/scale checks
+my_drone_px4/           PX4 side (controller:=px4)
+  airframes/4950_gz_build03              PX4 airframe for the Build 03 Prototype
+  scripts/offboard_adapter.py            our topics <-> PX4 offboard over uXRCE-DDS
+  test/test_frames.py                    NED/FRD <-> ENU/FLU conversion checks
 my_drone_teleop/        operator tools (Python): arrow_teleop, goto
 my_drone_bringup/       simulation: launch/sim.launch.py, worlds/,
                         config/bridge_build03.yaml (ROS <-> gz), rviz/
@@ -251,10 +273,10 @@ weighing:
    folders under `/media/safwan/Shared/Drone_Frames`, or `$DRONE_FRAMES`).
 2. Run `python3 tools/mass_budget.py` and paste the printed values into
    `my_drone_description/urdf/build03_params.xacro`.
-3. Our controller picks the new values up by itself. Only for
-   `controller:=gz`: rescale `attitude_gain` / `angular_rate_gain` by the
-   inertia change per axis and `velocity_gain` by the mass change. Gazebo's
-   controller normalises gains by both, so this keeps the same response.
+3. Our controller picks the new values up by itself. PX4 does not use
+   mass or inertia directly; its hover thrust estimator adapts, and a large
+   inertia change may need the rate gains (`MC_*RATE_K` in the airframe)
+   retuned.
 
 ## History
 

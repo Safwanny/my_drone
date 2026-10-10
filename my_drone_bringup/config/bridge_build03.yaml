@@ -1,25 +1,9 @@
 # ROS 2 <-> Gazebo topic bridge for build03.
-#
-# Note the asymmetry in naming: Gazebo's MulticopterVelocityControl plugin
-# expects a gz.msgs.Twist on <robotNamespace>/<commandSubTopic>, which is
-# why the ROS side's friendly /cmd_vel maps onto the longer gz name.
-
-- ros_topic_name: "/cmd_vel"
-  gz_topic_name: "/build03/gazebo/command/twist"
-  ros_type_name: "geometry_msgs/msg/Twist"
-  gz_type_name: "gz.msgs.Twist"
-  direction: ROS_TO_GZ
-
-- ros_topic_name: "/enable"
-  gz_topic_name: "/build03/enable"
-  ros_type_name: "std_msgs/msg/Bool"
-  gz_type_name: "gz.msgs.Boolean"
-  direction: ROS_TO_GZ
 
 # Rotor speeds (rad/s) from our flight_controller to the four
 # MulticopterMotorModel plugins, indexed by motorNumber. The gz topic is the
 # one PX4 writes (/<model>/command/motor_speed). Unused (no publisher) with
-# controller:=gz or px4.
+# controller:=px4.
 - ros_topic_name: "/motor_speed"
   gz_topic_name: "/build03/command/motor_speed"
   ros_type_name: "actuator_msgs/msg/Actuators"
@@ -53,16 +37,10 @@
   gz_type_name: "gz.msgs.NavSat"
   direction: GZ_TO_ROS
 
-# The exact state from gz. /ground_truth/odom is for scoring and debugging
-# only. /odom is the state the flight stack flies on: also the exact state
-# while our controller runs on it, an estimator's output later.
+# The exact state from gz, for scoring and debugging only. /odom (the state
+# the flight stack flies on) comes from sim.launch.py: this same odometry
+# for our controller, EKF2's estimate (offboard_adapter) for PX4.
 - ros_topic_name: "/ground_truth/odom"
-  gz_topic_name: "/model/build03/odometry"
-  ros_type_name: "nav_msgs/msg/Odometry"
-  gz_type_name: "gz.msgs.Odometry"
-  direction: GZ_TO_ROS
-
-- ros_topic_name: "/odom"
   gz_topic_name: "/model/build03/odometry"
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
