@@ -64,14 +64,14 @@
       </inertial>
       <visual>
         <geometry>
-          <mesh filename="package://my_drone/meshes/common/Prop_7040-3_${spin}.stl" scale="${mesh_scale}"/>
+          <mesh filename="package://my_drone_description/meshes/common/Prop_7040-3_${spin}.stl" scale="${mesh_scale}"/>
         </geometry>
         <material name="prop_black"/>
       </visual>
       <visual>
         <origin xyz="0 0 ${prop_mesh_h}" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://my_drone/meshes/common/Nut_M5_flange.stl" scale="${mesh_scale}"/>
+          <mesh filename="package://my_drone_description/meshes/common/Nut_M5_flange.stl" scale="${mesh_scale}"/>
         </geometry>
         <material name="nut_red"/>
       </visual>
@@ -93,7 +93,7 @@
     <visual>
       <origin xyz="${x} ${y} ${z}" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://my_drone/meshes/common/Motor_2807SL.stl" scale="${mesh_scale}"/>
+        <mesh filename="package://my_drone_description/meshes/common/Motor_2807SL.stl" scale="${mesh_scale}"/>
       </geometry>
       <material name="motor_grey"/>
     </visual>

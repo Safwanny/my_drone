@@ -1,7 +1,7 @@
 // Sign and scale checks for control.hpp, on build03's numbers.
 #include <gtest/gtest.h>
 
-#include "../src/control.hpp"
+#include "my_drone_control/control.hpp"
 
 using fc::Quat;
 using fc::Vec3;

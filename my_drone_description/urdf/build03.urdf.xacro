@@ -6,9 +6,9 @@
 -->
 <robot name="build03" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:include filename="$(find my_drone)/urdf/quad_mesh_common.xacro"/>
-  <xacro:include filename="$(find my_drone)/urdf/build03_params.xacro"/>
-  <xacro:include filename="$(find my_drone)/urdf/quad_gazebo.xacro"/>
+  <xacro:include filename="$(find my_drone_description)/urdf/quad_mesh_common.xacro"/>
+  <xacro:include filename="$(find my_drone_description)/urdf/build03_params.xacro"/>
+  <xacro:include filename="$(find my_drone_description)/urdf/quad_gazebo.xacro"/>
 
   <material name="frame_grey"><color rgba="0.22 0.22 0.25 1.0"/></material>
 
@@ -16,7 +16,7 @@
     <visual>
       <origin xyz="${cad_offset}" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://my_drone/meshes/build03/${file}.stl" scale="${mesh_scale}"/>
+        <mesh filename="package://my_drone_description/meshes/build03/${file}.stl" scale="${mesh_scale}"/>
       </geometry>
       <material name="frame_grey"/>
     </visual>

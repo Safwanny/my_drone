@@ -24,7 +24,7 @@ front-left CW, front-right CCW, rear-left CCW, rear-right CW.
 ## Build
 
 ```bash
-cd ~/ros2_ws && source /opt/ros/jazzy/setup.bash && colcon build --packages-select my_drone
+cd ~/ros2_ws && source /opt/ros/jazzy/setup.bash && colcon build --packages-up-to my_drone_bringup my_drone_teleop
 ```
 
 ## Run
@@ -38,7 +38,7 @@ source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash
 Launch (opens Gazebo and RViz):
 
 ```bash
-ros2 launch my_drone sim.launch.py
+ros2 launch my_drone_bringup sim.launch.py
 ```
 
 Options: `rviz:=false`, `headless:=true` (no Gazebo window), `z:=0.5`
@@ -48,7 +48,7 @@ instead of ours; no `/goal_pose` then).
 Fly, in a second terminal (needs a real keyboard/TTY):
 
 ```bash
-ros2 run my_drone arrow_teleop.py
+ros2 run my_drone_teleop arrow_teleop
 ```
 
 | Key | Action |
@@ -61,9 +61,21 @@ ros2 run my_drone arrow_teleop.py
 | `q` / Ctrl+C | land, stop the motors, quit (Ctrl+C twice: stop motors now) |
 
 The drone spawns disarmed with its props still. Teleop arms it when it
-starts (props spin up to idle-hover speed); quitting teleop lands the drone
-if it is airborne and then disarms it, so the props stop. Your terminal is
-restored either way.
+starts (props spin up to idle-hover speed); quitting teleop sends `/land`,
+and the controller descends and disarms on touchdown, so the props stop.
+Your terminal is restored either way.
+
+Land or kill from anywhere:
+
+```bash
+ros2 topic pub --once /land std_msgs/msg/Empty
+```
+```bash
+ros2 topic pub --once /enable std_msgs/msg/Bool "{data: false}"
+```
+
+The first lands and disarms; the second stops the motors at once, in the
+air too.
 
 Stop the sim with Ctrl+C in the launch terminal or by closing the Gazebo
 window: either stops everything. Any process a crashed session left behind
@@ -71,10 +83,12 @@ is cleared at the next launch.
 
 Go to goal, in a second terminal: each waypoint is `x,y,z[,yaw_deg]` in
 the odom frame. The script arms the drone, flies the waypoints in order and
-prints the time and overshoot for each, then leaves it hovering.
+prints the time and overshoot for each, then leaves it hovering. Ctrl+C
+(or a waypoint that times out) lands it instead; Ctrl+C again kills the
+motors. Waypoints need 0 < z <= 30 m.
 
 ```bash
-ros2 run my_drone goto.py 0,0,2 3,3,2 -2,1,1,90 0,0,0.3
+ros2 run my_drone_teleop goto 0,0,2 3,3,2 -2,1,1,90 0,0,0.3
 ```
 
 RViz's *2D Goal Pose* tool works too (it keeps the current altitude, or
@@ -92,7 +106,9 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 |---|---|---|
 | `/cmd_vel` | `geometry_msgs/Twist` (heading-frame velocity + yaw rate) | in |
 | `/goal_pose` | `geometry_msgs/PoseStamped` (position + yaw, odom frame) | in |
-| `/enable` | `std_msgs/Bool` (arm / disarm) | in |
+| `/enable` | `std_msgs/Bool` (arm / disarm; false = motor kill) | in |
+| `/land` | `std_msgs/Empty` (descend, disarm on touchdown) | in |
+| `/armed` | `std_msgs/Bool` (latched, on change) | out |
 | `/motor_speed` | `actuator_msgs/Actuators` (rotor speeds, rad/s) | controller → gz |
 | `/odom` | `nav_msgs/Odometry` | out |
 | `/imu` | `sensor_msgs/Imu` | out |
@@ -101,8 +117,9 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 
 ## Flight controller
 
-`src/flight_controller.cpp` (ROS I/O, modes, failsafes) around
-`src/control.hpp` (the math, no ROS). It is the cascade PX4 and ArduPilot
+`my_drone_control/src/flight_controller.cpp` (ROS I/O, modes, failsafes)
+around `my_drone_control/include/my_drone_control/control.hpp` (the math,
+no ROS). It is the cascade PX4 and ArduPilot
 use, in physical units:
 
 ```
@@ -118,32 +135,44 @@ use, in physical units:
   holds position.
 - On the ground it idles until something asks to climb. If `/odom` stops it
   levels out and sinks slowly. Disarm stops the motors at once.
+- Touchdown (asked down, not moving, thrust under hover, below
+  `land_slow_alt`) disarms in every mode, so landing does not depend on the
+  client staying alive. Goals below 0 or above `alt_max` are rejected.
 - Mass, inertia, motor constants and rotor layout come from the
   `<quad_physics>` element `quad_gazebo.xacro` writes into the URDF, so they
-  always match the Gazebo model. Gains are in `config/controller.yaml`
+  always match the Gazebo model. Gains are in `my_drone_control/config/controller.yaml`
   (physical units, so they do not need rescaling when the mass changes).
   Tune inner to outer: rate, attitude, velocity, position.
 
-`colcon test --packages-select my_drone` runs the sign and scale checks in
-`test/test_control.cpp`.
+`colcon test --packages-select my_drone_control` runs the sign and scale
+checks in `my_drone_control/test/test_control.cpp`. Scalar limits
+(`tilt_max_deg`, timeouts, ...) are range-checked by the parameter server,
+so a bad value fails at start-up.
 
 ## Layout
 
+Four packages, split by what they depend on: the controller builds and
+tests without Gazebo, and the description can be reused on hardware.
+
 ```
-urdf/quad_mesh_common.xacro  motor/prop physics + spinning prop macros (shared)
-urdf/quad_gazebo.xacro       gz plugins: motor models, IMU, odom; <quad_physics> for our
-                             controller; gz velocity controller if controller:=gz
-urdf/build03_params.xacro    mass, inertia, rotor positions (gz controller gains)
-urdf/build03.urdf.xacro      frame meshes + collision boxes
-config/bridge_build03.yaml   ROS <-> gz topic bridge
-config/controller.yaml       flight controller gains and limits
-src/                         flight controller (control.hpp = math)
-scripts/                     arrow_teleop.py, goto.py
-meshes/                      STLs (mm) copied from the CAD folders
-tools/mass_budget.py         mass / CoM / inertia from meshes + part weights
-docs/controller.html|pdf     controller write-up (build_pdf.py prints it with Firefox;
-                             make_figures.py plots data/flight.npz)
-docs/images/                 README and write-up images
+my_drone_description/   the model, no runtime deps beyond xacro
+  urdf/quad_mesh_common.xacro  motor/prop physics + spinning prop macros
+  urdf/quad_gazebo.xacro       gz plugins: motor models, IMU, odom; <quad_physics>
+                               for our controller; gz velocity controller if controller:=gz
+  urdf/build03_params.xacro    mass, inertia, rotor positions (gz controller gains)
+  urdf/build03.urdf.xacro      frame meshes + collision boxes
+  meshes/                      STLs (mm) copied from the CAD folders
+my_drone_control/       flight controller (C++)
+  include/my_drone_control/control.hpp   the cascade maths, ROS-free, header-only
+  src/flight_controller.cpp              node: topics, modes, failsafes
+  config/controller.yaml                 gains and limits
+  test/test_control.cpp                  gtest sign/scale checks
+my_drone_teleop/        operator tools (Python): arrow_teleop, goto
+my_drone_bringup/       simulation: launch/sim.launch.py, worlds/,
+                        config/bridge_build03.yaml (ROS <-> gz), rviz/
+tools/mass_budget.py    mass / CoM / inertia from meshes + part weights (not installed)
+docs/                   controller write-up (controller.html|pdf; build_pdf.py prints
+                        it with Firefox, make_figures.py plots data/flight.npz), images
 ```
 
 ## When real weights are known
@@ -155,7 +184,7 @@ weighing:
 1. Edit the tables at the top of `tools/mass_budget.py` (it reads the CAD
    folders under `/media/safwan/Shared/Drone_Frames`, or `$DRONE_FRAMES`).
 2. Run `python3 tools/mass_budget.py` and paste the printed values into
-   `urdf/build03_params.xacro`.
+   `my_drone_description/urdf/build03_params.xacro`.
 3. Our controller picks the new values up by itself. Only for
    `controller:=gz`: rescale `attitude_gain` / `angular_rate_gain` by the
    inertia change per axis and `velocity_gain` by the mass change. Gazebo's
@@ -165,4 +194,5 @@ weighing:
 
 The original F450 model was removed in 0.2.0 (`git checkout f450-final`
 restores it). The WEAREFPV JeNo 7 was removed in 0.3.0 (`git checkout
-v0.2.1` has it).
+v0.2.1` has it). 0.4.0 split the single `my_drone` package into the four
+above; `git checkout v0.3.0` has the old layout.

@@ -5,14 +5,14 @@ xacro, the model spawn, the ROS<->GZ bridge, our flight_controller and RViz.
 The drone spawns disarmed (props still); arrow_teleop arms it on start and
 lands + disarms it on quit, goto.py arms it and flies waypoints.
 
-    ros2 launch my_drone sim.launch.py
-    ros2 launch my_drone sim.launch.py rviz:=false
-    ros2 launch my_drone sim.launch.py controller:=gz   # Gazebo's built-in one
+    ros2 launch my_drone_bringup sim.launch.py
+    ros2 launch my_drone_bringup sim.launch.py rviz:=false
+    ros2 launch my_drone_bringup sim.launch.py controller:=gz   # Gazebo's built-in one
 
 Teleop is NOT launched here: reading the keyboard needs a real TTY, which a
 launch-spawned process does not get. Run it yourself in a second terminal:
 
-    ros2 run my_drone arrow_teleop.py
+    ros2 run my_drone_teleop arrow_teleop
 """
 
 import os
@@ -45,20 +45,24 @@ from launch_ros.substitutions import FindPackageShare
 
 
 # Every process this launch starts inherits this variable, including the
-# ones gz forks behind launch's back, so stragglers can always be found.
+# ones gz forks behind launch's back, so stragglers can always be found. Its
+# value is the launch's PID, so a session shutting down only sweeps its own
+# processes, not those of a new session started meanwhile.
 MARKER = "MY_DRONE_SIM"
 
 
-def marked_pids():
-    """PIDs (ours, other than this launch) whose environment carries MARKER."""
+def marked_pids(session=None):
+    """PIDs (ours, other than this launch) tagged with MARKER, by any session
+    or only by `session`."""
     me = os.getpid()
+    tag = (MARKER + "=" + (f"{session}\0" if session else "")).encode()
     pids = []
     for d in os.listdir("/proc"):
         if not d.isdigit() or int(d) == me:
             continue
         try:
             with open(f"/proc/{d}/environ", "rb") as f:
-                if (MARKER + "=").encode() in f.read():
+                if tag in f.read():
                     pids.append(int(d))
         except OSError:  # gone, or not ours
             pass
@@ -78,7 +82,7 @@ def kill_stragglers(context, when):
     Gazebo window's Ruby wrapper forks the real GUI in its own process
     group), so terminate the rest here.
     """
-    pids = marked_pids()
+    pids = marked_pids(os.getpid() if when == "on exit" else None)
     if when == "on exit":
         # Direct children are launch's job; it SIGINTs them and escalates.
         children = set(map(int, subprocess.run(
@@ -96,9 +100,10 @@ def kill_stragglers(context, when):
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory("my_drone")
+    pkg = get_package_share_directory("my_drone_bringup")
+    description = get_package_share_directory("my_drone_description")
 
-    drone = "build03"  # names urdf/<drone>.urdf.xacro, the bridge config and the gz model
+    drone = "build03"  # names the description xacro, the bridge config and the gz model
     world = LaunchConfiguration("world")
     use_rviz = LaunchConfiguration("rviz")
     headless = LaunchConfiguration("headless")
@@ -142,7 +147,7 @@ def generate_launch_description():
             [
                 "xacro ",
                 PathJoinSubstitution(
-                    [FindPackageShare("my_drone"), "urdf", [drone, ".urdf.xacro"]]
+                    [FindPackageShare("my_drone_description"), "urdf", [drone, ".urdf.xacro"]]
                 ),
                 " controller:=",
                 controller,
@@ -151,10 +156,11 @@ def generate_launch_description():
         value_type=str,
     )
 
-    # Lets gz resolve package://my_drone/meshes/... (URDF->SDF turns it into
-    # model://my_drone/..., looked up under <install>/share).
+    # Lets gz resolve package://my_drone_description/meshes/... (URDF->SDF
+    # turns it into model://my_drone_description/..., looked up under
+    # <install>/share).
     mesh_path = AppendEnvironmentVariable(
-        "GZ_SIM_RESOURCE_PATH", os.path.dirname(pkg)
+        "GZ_SIM_RESOURCE_PATH", os.path.dirname(description)
     )
 
     # The server runs inside ros_gz_sim's gzserver node rather than the
@@ -214,11 +220,13 @@ def generate_launch_description():
 
     flight_controller = Node(
         condition=IfCondition(PythonExpression(["'", controller, "' == 'custom'"])),
-        package="my_drone",
+        package="my_drone_control",
         executable="flight_controller",
         output="screen",
         parameters=[
-            os.path.join(pkg, "config", "controller.yaml"),
+            PathJoinSubstitution(
+                [FindPackageShare("my_drone_control"), "config", "controller.yaml"]
+            ),
             {"robot_description": robot_description, "use_sim_time": True},
         ],
     )
@@ -235,7 +243,7 @@ def generate_launch_description():
     # Clear leftovers from an earlier session before starting anything, tag
     # everything we start, and sweep up whatever outlives the launch.
     clean_start = OpaqueFunction(function=kill_stragglers, args=["at startup"])
-    tag = SetEnvironmentVariable(MARKER, "1")
+    tag = SetEnvironmentVariable(MARKER, str(os.getpid()))
     clean_exit = RegisterEventHandler(
         OnShutdown(
             on_shutdown=[OpaqueFunction(function=kill_stragglers, args=["on exit"])]
