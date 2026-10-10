@@ -1,0 +1,66 @@
+#!/bin/sh
+#
+# @name Build 03 Prototype (Gazebo)
+#
+# @type Quadrotor x
+#
+# PX4 airframe for the Build 03 Prototype in Gazebo. Not part of PX4's
+# tree: sim.launch.py (controller:=px4) links it into PX4's build
+# directory and starts PX4 attached to the model it spawned. The ID 4950 is
+# unused by PX4's own gz airframes (4001-4021).
+
+. ${R}etc/init.d/rc.mc_defaults
+
+PX4_SIMULATOR=${PX4_SIMULATOR:=gz}
+
+param set-default SIM_GZ_EN 1
+
+# Rotor geometry in PX4's body frame (FRD: y to the right), so the y signs
+# are flipped from the URDF (FLU). Index = gz motorNumber. KM > 0 is ccw.
+# KM is only used for allocation; 0.05 as PX4's x500, so the default yaw
+# gains keep their meaning (the physical drag ratio is 0.016).
+param set-default CA_AIRFRAME 0
+param set-default CA_ROTOR_COUNT 4
+param set-default CA_ROTOR0_PX  0.143
+param set-default CA_ROTOR0_PY  0.143
+param set-default CA_ROTOR0_KM  0.05
+param set-default CA_ROTOR1_PX -0.143
+param set-default CA_ROTOR1_PY -0.143
+param set-default CA_ROTOR1_KM  0.05
+param set-default CA_ROTOR2_PX  0.143
+param set-default CA_ROTOR2_PY -0.143
+param set-default CA_ROTOR2_KM -0.05
+param set-default CA_ROTOR3_PX -0.143
+param set-default CA_ROTOR3_PY  0.143
+param set-default CA_ROTOR3_KM -0.05
+
+# Motor i -> gz motorNumber i-1. Commands are rotor speeds in rad/s, linear
+# between MIN (armed idle, 10 % as our controller) and MAX (the motor
+# model's maxRotVelocity).
+param set-default SIM_GZ_EC_FUNC1 101
+param set-default SIM_GZ_EC_FUNC2 102
+param set-default SIM_GZ_EC_FUNC3 103
+param set-default SIM_GZ_EC_FUNC4 104
+param set-default SIM_GZ_EC_MIN1 230
+param set-default SIM_GZ_EC_MIN2 230
+param set-default SIM_GZ_EC_MIN3 230
+param set-default SIM_GZ_EC_MIN4 230
+param set-default SIM_GZ_EC_MAX1 2300
+param set-default SIM_GZ_EC_MAX2 2300
+param set-default SIM_GZ_EC_MAX3 2300
+param set-default SIM_GZ_EC_MAX4 2300
+
+# Hover at 785 rad/s: (785 - 230) / (2300 - 230) = 0.27 of the command range.
+param set-default MPC_THR_HOVER 0.27
+
+# Rate loops: PX4's defaults are tuned for the x500. Build 03 has ~5-7x its
+# angular acceleration per unit command (19.6 N vs 8.6 N per rotor, a third
+# of the inertia), so scale each axis's whole PID down with its gain K.
+param set-default MC_ROLLRATE_K 0.2
+param set-default MC_PITCHRATE_K 0.15
+param set-default MC_YAWRATE_K 0.15
+
+# Sim only: no ground station or RC transmitter is connected, and arming
+# must not wait for one. Commands come over ROS 2 (offboard).
+param set-default NAV_DLL_ACT 0
+param set-default COM_RC_IN_MODE 4
