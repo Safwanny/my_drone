@@ -149,6 +149,44 @@ checks in `my_drone_control/test/test_control.cpp`. Scalar limits
 (`tilt_max_deg`, timeouts, ...) are range-checked by the parameter server,
 so a bad value fails at start-up.
 
+## PX4 SITL (work in progress)
+
+PX4 v1.17.0 is being brought in as a second flight stack (EKF2 on
+simulated sensors), to fly next to our controller for comparison. So far
+it is set up and flies its stock x500; the Build 03 Prototype is not
+ported yet.
+
+One-time setup (no sudo needed on a machine that already builds this repo;
+PX4 finds Gazebo's libraries through ROS):
+
+```bash
+git clone --branch v1.17.0 --depth 1 --recurse-submodules --shallow-submodules https://github.com/PX4/PX4-Autopilot.git ~/PX4-Autopilot
+```
+```bash
+python3 -m venv --system-site-packages ~/.venvs/px4 && ~/.venvs/px4/bin/pip install ninja -r ~/PX4-Autopilot/Tools/setup/requirements.txt
+```
+```bash
+source /opt/ros/jazzy/setup.bash && cd ~/PX4-Autopilot && PATH=~/.venvs/px4/bin:$PATH make px4_sitl
+```
+```bash
+cd ~/ros2_ws/src && vcs import < my_drone/px4.repos && cd .. && colcon build --packages-select px4_msgs microxrcedds_agent
+```
+
+Fly the stock x500 (Gazebo window opens; PX4's console is in this
+terminal, try `commander takeoff` and `commander land`):
+
+```bash
+source /opt/ros/jazzy/setup.bash && cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
+```
+
+Without QGroundControl, arming is refused ("No connection to the GCS")
+until `param set NAV_DLL_ACT 0` and `param set COM_RC_IN_MODE 4` (sim only;
+PX4 saves them). PX4 topics in ROS 2, in a second terminal:
+
+```bash
+source ~/ros2_ws/install/setup.bash && MicroXRCEAgent udp4 -p 8888
+```
+
 ## Layout
 
 Four packages, split by what they depend on: the controller builds and
