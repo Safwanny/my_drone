@@ -17,10 +17,11 @@
   direction: ROS_TO_GZ
 
 # Rotor speeds (rad/s) from our flight_controller to the four
-# MulticopterMotorModel plugins, indexed by motorNumber. Unused (no
-# publisher) when the sim runs with controller:=gz.
+# MulticopterMotorModel plugins, indexed by motorNumber. The gz topic is the
+# one PX4 writes (/<model>/command/motor_speed). Unused (no publisher) with
+# controller:=gz or px4.
 - ros_topic_name: "/motor_speed"
-  gz_topic_name: "/build03/gazebo/command/motor_speed"
+  gz_topic_name: "/build03/command/motor_speed"
   ros_type_name: "actuator_msgs/msg/Actuators"
   gz_type_name: "gz.msgs.Actuators"
   direction: ROS_TO_GZ

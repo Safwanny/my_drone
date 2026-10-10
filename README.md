@@ -43,7 +43,8 @@ ros2 launch my_drone_bringup sim.launch.py
 
 Options: `rviz:=false`, `headless:=true` (no Gazebo window), `z:=0.5`
 (spawn height), `controller:=gz` (Gazebo's built-in velocity controller
-instead of ours; no `/goal_pose` then).
+instead of ours; no `/goal_pose` then), `controller:=px4` (PX4 SITL, see
+below).
 
 Fly, in a second terminal (needs a real keyboard/TTY):
 
@@ -156,10 +157,31 @@ so a bad value fails at start-up.
 ## PX4 SITL (work in progress)
 
 PX4 v1.17.0 is being brought in as a second flight stack (EKF2 on
-simulated sensors), to fly next to our controller for comparison. So far
-it is set up and flies its stock x500. The Build 03 Prototype model already
-carries the sensors PX4 needs (IMU, barometer, magnetometer, GNSS, named as
-PX4 expects), but is not ported to PX4 yet.
+simulated sensors), to fly next to our controller for comparison. PX4
+flies the Build 03 Prototype from its own console; driving it from
+`goto` / teleop (offboard over ROS 2) is next.
+
+`controller:=px4` starts PX4 attached to the model the launch spawns, on
+our airframe `my_drone_bringup/px4/4950_gz_build03` (rotor geometry, motor
+range, hover thrust, rate gains scaled for this airframe). PX4 only reads
+airframes from its build tree, so the launch links the file in there. PX4
+is looked for in `~/PX4-Autopilot`, or `$PX4_DIR`.
+
+```bash
+ros2 launch my_drone_bringup sim.launch.py controller:=px4
+```
+
+PX4's console commands, from a second terminal with ROS sourced:
+
+```bash
+cd ~/PX4-Autopilot/build/px4_sitl_default && ./bin/px4-commander takeoff
+```
+```bash
+cd ~/PX4-Autopilot/build/px4_sitl_default && ./bin/px4-commander land
+```
+
+Flight logs land in `~/PX4-Autopilot/build/px4_sitl_default/rootfs/log/`
+(open them in PlotJuggler or https://review.px4.io).
 
 One-time setup (no sudo needed on a machine that already builds this repo;
 PX4 finds Gazebo's libraries through ROS):
@@ -177,16 +199,17 @@ source /opt/ros/jazzy/setup.bash && cd ~/PX4-Autopilot && PATH=~/.venvs/px4/bin:
 cd ~/ros2_ws/src && vcs import < my_drone/px4.repos && cd .. && colcon build --packages-select px4_msgs microxrcedds_agent
 ```
 
-Fly the stock x500 (Gazebo window opens; PX4's console is in this
-terminal, try `commander takeoff` and `commander land`):
+PX4's own x500, to check the install (Gazebo window opens; PX4's console
+is in this terminal, try `commander takeoff` and `commander land`):
 
 ```bash
 source /opt/ros/jazzy/setup.bash && cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ```
 
-Without QGroundControl, arming is refused ("No connection to the GCS")
-until `param set NAV_DLL_ACT 0` and `param set COM_RC_IN_MODE 4` (sim only;
-PX4 saves them). PX4 topics in ROS 2, in a second terminal:
+Without QGroundControl, the x500 refuses to arm ("No connection to the
+GCS") until `param set NAV_DLL_ACT 0` and `param set COM_RC_IN_MODE 4`
+(sim only; our airframe sets both). PX4 topics in ROS 2, in a second
+terminal:
 
 ```bash
 source ~/ros2_ws/install/setup.bash && MicroXRCEAgent udp4 -p 8888

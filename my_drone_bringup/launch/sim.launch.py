@@ -8,6 +8,7 @@ lands + disarms it on quit, goto.py arms it and flies waypoints.
     ros2 launch my_drone_bringup sim.launch.py
     ros2 launch my_drone_bringup sim.launch.py rviz:=false
     ros2 launch my_drone_bringup sim.launch.py controller:=gz   # Gazebo's built-in one
+    ros2 launch my_drone_bringup sim.launch.py controller:=px4  # PX4 SITL (~/PX4-Autopilot)
 
 Teleop is NOT launched here: reading the keyboard needs a real TTY, which a
 launch-spawned process does not get. Run it yourself in a second terminal:
@@ -32,7 +33,7 @@ from launch.actions import (
     Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnShutdown
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.substitutions import (
     Command,
     LaunchConfiguration,
@@ -99,6 +100,40 @@ def kill_stragglers(context, when):
     return []
 
 
+PX4_AIRFRAME = "4950_gz_build03"
+
+
+def start_px4(context):
+    """Run PX4 SITL from $PX4_DIR (default ~/PX4-Autopilot) on our airframe.
+
+    PX4 only reads airframes from its own build tree, so link ours in there
+    rather than patching PX4's sources.
+    """
+    build = os.path.join(
+        os.environ.get("PX4_DIR", os.path.expanduser("~/PX4-Autopilot")),
+        "build", "px4_sitl_default")
+    px4_bin = os.path.join(build, "bin", "px4")
+    if not os.path.exists(px4_bin):
+        raise RuntimeError(f"no PX4 SITL build at {build}: see README, PX4 SITL")
+    src = os.path.join(get_package_share_directory("my_drone_bringup"), "px4", PX4_AIRFRAME)
+    dst = os.path.join(build, "etc", "init.d-posix", "airframes", PX4_AIRFRAME)
+    if os.path.lexists(dst):
+        os.remove(dst)
+    os.symlink(src, dst)
+    return [ExecuteProcess(
+        cmd=[px4_bin, "-d"],
+        cwd=build,
+        additional_env={
+            "PX4_SYS_AUTOSTART": PX4_AIRFRAME.split("_")[0],
+            "PX4_GZ_STANDALONE": "1",
+            "PX4_GZ_WORLD": "empty_flight",
+            "PX4_GZ_MODEL_NAME": "build03",
+        },
+        output="screen",
+        on_exit=Shutdown(reason="PX4 exited"),
+    )]
+
+
 def generate_launch_description():
     pkg = get_package_share_directory("my_drone_bringup")
     description = get_package_share_directory("my_drone_description")
@@ -114,10 +149,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "controller",
             default_value="custom",
-            choices=["custom", "gz"],
+            choices=["custom", "gz", "px4"],
             description="custom: our flight_controller node (position, "
             "velocity, attitude, rate, mixer). gz: Gazebo's built-in "
-            "MulticopterVelocityControl (velocity only, no /goal_pose).",
+            "MulticopterVelocityControl (velocity only, no /goal_pose). "
+            "px4: PX4 SITL (EKF2 on the simulated sensors, then its own "
+            "cascade), attached to the spawned model.",
         ),
         DeclareLaunchArgument(
             "world",
@@ -231,6 +268,14 @@ def generate_launch_description():
         ],
     )
 
+    # PX4 SITL, attached to the model spawned above (standalone: it neither
+    # starts gz nor spawns its own model). Started once the spawner has
+    # exited, so the model exists when PX4's gz_bridge looks for it.
+    px4 = RegisterEventHandler(
+        OnProcessExit(target_action=spawn, on_exit=[OpaqueFunction(function=start_px4)]),
+        condition=IfCondition(PythonExpression(["'", controller, "' == 'px4'"])),
+    )
+
     rviz = Node(
         condition=IfCondition(use_rviz),
         package="rviz2",
@@ -254,5 +299,5 @@ def generate_launch_description():
         args
         + [clean_start, tag, clean_exit, mesh_path]
         + [gz_server, gz_gui, robot_state_publisher, bridge, spawn,
-           flight_controller, rviz]
+           flight_controller, px4, rviz]
     )
