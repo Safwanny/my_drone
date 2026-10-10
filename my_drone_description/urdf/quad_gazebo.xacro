@@ -78,8 +78,8 @@
          Names and the default gz topics
          (/world/<world>/model/<model>/link/base_link/sensor/<name>/<type>)
          are what PX4's gz_bridge subscribes to; the ROS bridge maps them to
-         short ROS names. Noise is white only: no drift, latency or outages
-         yet. -->
+         short ROS names. GNSS and barometer are exact here and get their
+         errors from sensor_realism.py. -->
 
     <!-- IMU, modelled on the MPU-6050. Orientation is off: gz would fill it
          with the true attitude. -->
@@ -110,15 +110,13 @@
       </sensor>
     </gazebo>
 
-    <!-- Barometer, noise as a BMP390 (Pa). -->
+    <!-- Barometer: exact. sensor_realism.py adds the noise and drift and
+         republishes as air_pressure_sensor, the name PX4 reads. -->
     <gazebo reference="base_link">
-      <sensor name="air_pressure_sensor" type="air_pressure">
+      <sensor name="air_pressure_truth" type="air_pressure">
         <always_on>1</always_on>
         <update_rate>50</update_rate>
         <gz_frame_id>base_link</gz_frame_id>
-        <air_pressure>
-          <pressure><noise type="gaussian"><mean>0</mean><stddev>3</stddev></noise></pressure>
-        </air_pressure>
       </sensor>
     </gazebo>
 
@@ -137,24 +135,16 @@
       </sensor>
     </gazebo>
 
-    <!-- GNSS, an M10-class receiver at 10 Hz. Needs the world's
-         <spherical_coordinates>. Horizontal noise is in degrees, not metres
-         (gz applies it to latitude/longitude): 3e-6 deg is ~0.3 m. -->
+    <!-- GNSS: exact, 10 Hz. sensor_realism.py adds an M10-class error
+         (slow wander, white noise, 110 ms delay) and republishes as
+         navsat_sensor, the name PX4 reads. gz's own noise can't do this:
+         its slow bias never evolves for navsat. Needs the world's
+         <spherical_coordinates>. -->
     <gazebo reference="base_link">
-      <sensor name="navsat_sensor" type="navsat">
+      <sensor name="navsat_truth" type="navsat">
         <always_on>1</always_on>
         <update_rate>10</update_rate>
         <gz_frame_id>base_link</gz_frame_id>
-        <navsat>
-          <position_sensing>
-            <horizontal><noise type="gaussian"><stddev>3e-6</stddev></noise></horizontal>
-            <vertical><noise type="gaussian"><stddev>0.5</stddev></noise></vertical>
-          </position_sensing>
-          <velocity_sensing>
-            <horizontal><noise type="gaussian"><stddev>0.05</stddev></noise></horizontal>
-            <vertical><noise type="gaussian"><stddev>0.05</stddev></noise></vertical>
-          </velocity_sensing>
-        </navsat>
       </sensor>
     </gazebo>
 
