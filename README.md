@@ -110,8 +110,12 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 | `/land` | `std_msgs/Empty` (descend, disarm on touchdown) | in |
 | `/armed` | `std_msgs/Bool` (latched, on change) | out |
 | `/motor_speed` | `actuator_msgs/Actuators` (rotor speeds, rad/s) | controller → gz |
-| `/odom` | `nav_msgs/Odometry` | out |
-| `/imu` | `sensor_msgs/Imu` | out |
+| `/odom` | `nav_msgs/Odometry` (state the controller flies on; exact for now) | out |
+| `/ground_truth/odom` | `nav_msgs/Odometry` (exact state, for scoring only) | out |
+| `/imu` | `sensor_msgs/Imu` (250 Hz; no orientation) | out |
+| `/air_pressure` | `sensor_msgs/FluidPressure` (50 Hz) | out |
+| `/magnetic_field` | `sensor_msgs/MagneticField` (100 Hz, gauss: a gz Harmonic quirk) | out |
+| `/navsat` | `sensor_msgs/NavSatFix` (10 Hz) | out |
 | `/joint_states` | `sensor_msgs/JointState` (prop angles) | out |
 | `/tf`, `/clock` | | out |
 
@@ -153,8 +157,9 @@ so a bad value fails at start-up.
 
 PX4 v1.17.0 is being brought in as a second flight stack (EKF2 on
 simulated sensors), to fly next to our controller for comparison. So far
-it is set up and flies its stock x500; the Build 03 Prototype is not
-ported yet.
+it is set up and flies its stock x500. The Build 03 Prototype model already
+carries the sensors PX4 needs (IMU, barometer, magnetometer, GNSS, named as
+PX4 expects), but is not ported to PX4 yet.
 
 One-time setup (no sudo needed on a machine that already builds this repo;
 PX4 finds Gazebo's libraries through ROS):

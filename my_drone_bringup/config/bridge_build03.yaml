@@ -25,10 +25,40 @@
   gz_type_name: "gz.msgs.Actuators"
   direction: ROS_TO_GZ
 
+# Sensors, from their default gz topics (the names PX4 also reads).
 - ros_topic_name: "/imu"
-  gz_topic_name: "/imu"
+  gz_topic_name: "/world/empty_flight/model/build03/link/base_link/sensor/imu_sensor/imu"
   ros_type_name: "sensor_msgs/msg/Imu"
   gz_type_name: "gz.msgs.IMU"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/air_pressure"
+  gz_topic_name: "/world/empty_flight/model/build03/link/base_link/sensor/air_pressure_sensor/air_pressure"
+  ros_type_name: "sensor_msgs/msg/FluidPressure"
+  gz_type_name: "gz.msgs.FluidPressure"
+  direction: GZ_TO_ROS
+
+# Gazebo Harmonic reports the field in gauss, not the tesla
+# sensor_msgs/MagneticField specifies (PX4's bridge expects gauss).
+- ros_topic_name: "/magnetic_field"
+  gz_topic_name: "/world/empty_flight/model/build03/link/base_link/sensor/magnetometer_sensor/magnetometer"
+  ros_type_name: "sensor_msgs/msg/MagneticField"
+  gz_type_name: "gz.msgs.Magnetometer"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/navsat"
+  gz_topic_name: "/world/empty_flight/model/build03/link/base_link/sensor/navsat_sensor/navsat"
+  ros_type_name: "sensor_msgs/msg/NavSatFix"
+  gz_type_name: "gz.msgs.NavSat"
+  direction: GZ_TO_ROS
+
+# The exact state from gz. /ground_truth/odom is for scoring and debugging
+# only. /odom is the state the flight stack flies on: also the exact state
+# while our controller runs on it, an estimator's output later.
+- ros_topic_name: "/ground_truth/odom"
+  gz_topic_name: "/model/build03/odometry"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
 
 - ros_topic_name: "/odom"
