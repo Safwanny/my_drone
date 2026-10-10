@@ -11,12 +11,14 @@ work unchanged on PX4 (offboard mode over uXRCE-DDS):
     /odom      nav_msgs/Odometry          out: PX4's estimate (EKF2)
     /armed     std_msgs/Bool (latched)    out: armed state, on change
 
-Frames. ROS side: ENU world frame "odom" with its origin at the gz world
-origin (the world's <spherical_coordinates>), body FLU. PX4 side: NED local
-frame with its origin wherever EKF2 set it, body FRD. Positions go through
-EKF2's reference lat/lon/alt, so a goal means the same physical point here
-and for flight_controller, and /odom is directly comparable with
-/ground_truth/odom.
+Frames. ROS side: ENU world frame "odom", body FLU. PX4 side: its NED local
+frame, body FRD. PX4's local frame starts where EKF2 initialised, i.e. where
+the drone sat at boot (the spawn point, origin_* parameters), and PX4 flies
+in it: offboard setpoints are local. So a goal is a point relative to the
+takeoff spot, as for flight_controller, and /odom minus /ground_truth/odom is
+the error PX4 actually flies with (drift since boot). Its absolute GNSS
+error at boot (ref_lat/lon/alt) is not part of that, as for any offboard
+mission flown in the local frame.
 """
 
 import math
@@ -29,7 +31,6 @@ from px4_msgs.msg import (
     TrajectorySetpoint,
     VehicleCommand,
     VehicleCommandAck,
-    VehicleLocalPosition,
     VehicleOdometry,
     VehicleStatus,
 )
@@ -42,7 +43,6 @@ from rclpy.qos import (
 )
 from std_msgs.msg import Bool, Empty
 
-EARTH_RADIUS = 6371000.0  # m, PX4's map_projection constant
 NAN = float("nan")
 
 
@@ -82,38 +82,30 @@ def wrap(a):
     return math.atan2(math.sin(a), math.cos(a))
 
 
-class Ref:
-    """EKF2's local origin relative to the gz world origin.
+class Origin:
+    """World ENU position of PX4's local NED origin."""
 
-    Equirectangular: exact to well under a millimetre over a few km.
-    """
-
-    def __init__(self, lat0, lon0, alt0):
-        self.lat0, self.lon0, self.alt0 = lat0, lon0, alt0
-        self.offset = None  # ENU position of EKF2's origin in the world frame
-
-    def set(self, ref_lat, ref_lon, ref_alt):
-        north = math.radians(ref_lat - self.lat0) * EARTH_RADIUS
-        east = math.radians(ref_lon - self.lon0) * EARTH_RADIUS * math.cos(math.radians(self.lat0))
-        self.offset = (east, north, ref_alt - self.alt0)
+    def __init__(self, x, y, z):
+        self.offset = (x, y, z)
 
     def ned_to_world(self, p):
-        e, n, u = self.offset
-        return (p[1] + e, p[0] + n, -p[2] + u)
+        x, y, z = self.offset
+        return (p[1] + x, p[0] + y, -p[2] + z)
 
     def world_to_ned(self, p):
-        e, n, u = self.offset
-        return (p[1] - n, p[0] - e, -(p[2] - u))
+        x, y, z = self.offset
+        return (p[1] - y, p[0] - x, -(p[2] - z))
 
 
 # ---------------------------------------------------------------- node
 class OffboardAdapter(Node):
     def __init__(self):
         super().__init__("offboard_adapter")
-        # The gz world's <spherical_coordinates>; must match the world file.
-        self.ref = Ref(self.declare_parameter("world_lat", 47.397971057728974).value,
-                       self.declare_parameter("world_lon", 8.546163739800146).value,
-                       self.declare_parameter("world_alt", 0.0).value)
+        # Where the drone sat when PX4 booted: the spawn point; z is base_link's
+        # height resting on its landing plate.
+        self.ref = Origin(self.declare_parameter("origin_x", 0.0).value,
+                          self.declare_parameter("origin_y", 0.0).value,
+                          self.declare_parameter("origin_z", 0.0493).value)
         self.alt_max = self.declare_parameter("alt_max", 30.0).value
         self.takeoff_alt = self.declare_parameter("default_goal_alt", 1.5).value
         self.cmd_timeout = self.declare_parameter("cmd_vel_timeout", 0.5).value
@@ -125,8 +117,6 @@ class OffboardAdapter(Node):
         self.sp_pub = self.create_publisher(TrajectorySetpoint, "/fmu/in/trajectory_setpoint", px4_qos)
         self.cmd_pub = self.create_publisher(VehicleCommand, "/fmu/in/vehicle_command", px4_qos)
         self.create_subscription(VehicleStatus, "/fmu/out/vehicle_status_v1", self.on_status, px4_qos)
-        self.create_subscription(VehicleLocalPosition, "/fmu/out/vehicle_local_position_v1",
-                                 self.on_local_position, px4_qos)
         self.create_subscription(VehicleOdometry, "/fmu/out/vehicle_odometry", self.on_odometry, px4_qos)
         self.create_subscription(VehicleCommandAck, "/fmu/out/vehicle_command_ack", self.on_ack, px4_qos)
 
@@ -176,12 +166,8 @@ class OffboardAdapter(Node):
         if m.result != VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED:
             self.get_logger().warn(f"PX4 rejected command {m.command} (result {m.result})")
 
-    def on_local_position(self, m):
-        if m.xy_global and m.z_global:
-            self.ref.set(m.ref_lat, m.ref_lon, m.ref_alt)
-
     def on_odometry(self, m):
-        if self.ref.offset is None or m.pose_frame != VehicleOdometry.POSE_FRAME_NED:
+        if m.pose_frame != VehicleOdometry.POSE_FRAME_NED:
             return
         q = att_ned_to_enu(tuple(float(c) for c in m.q))
         self.pos = self.ref.ned_to_world(m.position)

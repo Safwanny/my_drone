@@ -188,22 +188,30 @@ uXRCE-DDS agent and `offboard_adapter`. PX4 is looked for in
 `offboard_adapter` flies PX4 in offboard mode from our topics, so `goto`
 and `arrow_teleop` work unchanged: `/enable` arms (or kills), `/land`
 switches PX4 to Land (it disarms on touchdown), `/goal_pose` and `/cmd_vel`
-become offboard setpoints, and `/odom` and `/armed` come from PX4. Goals
-and `/odom` are in the gz world frame for both stacks (the adapter goes
-through EKF2's lat/lon/alt origin), so `/odom` compares directly with
-`/ground_truth/odom`.
+become offboard setpoints, and `/odom` and `/armed` come from PX4. PX4 flies
+in its local frame, which starts where the drone sat at boot (the spawn
+point), so goals are relative to the takeoff spot for both stacks and
+`/odom` minus `/ground_truth/odom` is the error PX4 actually flies with.
 
 Differences to expect from our controller: PX4 ramps its takeoff in over
 a few seconds, and if it leaves offboard on its own (Land, a failsafe) the
 adapter stops sending setpoints until a new goal or `/cmd_vel` arrives.
 
-Seen so far, for the estimation campaign: with realistic GNSS, PX4's
-position estimate follows the GNSS error (1.5-2.5 m off horizontally in a
-typical run, so RViz's odometry arrows sit that far from the model). EKF2
-uses GNSS as its height reference by default (`EKF2_HGT_REF = 1`), so its
-altitude follows GNSS's vertical error too: in one run (`seed:=1`) PX4
-held "2 m" while really at up to 6 m, and the barometer, which had it
-right, was written off as a 4.5 m bias.
+EKF2 settings in the airframe, from a same-seed A/B (`seed:=1`, hover,
+climb, move, land; error of `/odom` against `/ground_truth/odom`):
+
+| Height fusion | Horizontal RMS / max | Height RMS / max (flight) |
+|---|---|---|
+| GNSS as reference (PX4 default) | 1.5-2.5 m | up to 5 m |
+| **Barometer reference, GNSS altitude as aid (used)** | 1.28 / 2.0 m | 0.54 / 1.17 m |
+| Barometer only, no GNSS altitude | 1.33 / 2.0 m | 1.19 / 1.39 m |
+
+`EKF2_GND_EFF_DZ` is 0 because the sim has no ground effect (the default
+4 m dead zone made the height sink ~1 m at every touchdown). The remaining
+horizontal error is the GNSS error itself (a slowly wandering ~1.3 m per
+axis, M10 class): EKF2 cannot tell it from motion, so RViz's odometry
+arrows sit 1-2 m from the model. Only a better absolute sensor (RTK GNSS)
+removes it.
 
 PX4's console commands, from a second terminal with ROS sourced:
 

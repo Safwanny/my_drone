@@ -60,6 +60,18 @@ param set-default MC_ROLLRATE_K 0.2
 param set-default MC_PITCHRATE_K 0.15
 param set-default MC_YAWRATE_K 0.15
 
+# Height reference: the barometer (PX4's default is GNSS). GNSS altitude
+# wanders by metres over minutes and EKF2 would follow it, writing the
+# barometer off as biased; with the barometer as reference, GNSS altitude
+# is still fused but its slow error is estimated as a bias instead.
+param set-default EKF2_HGT_REF 0
+
+# Near the ground EKF2 ignores barometer readings that say it is higher than
+# it thinks (up to 4 m), because real rotor wash fakes those. The sim has no
+# ground effect, so this only threw good data away: the height estimate
+# sank ~1 m at every touchdown. On hardware, go back to the default (4).
+param set-default EKF2_GND_EFF_DZ 0
+
 # Sim only: no ground station or RC transmitter is connected, and arming
 # must not wait for one. Commands come over ROS 2 (offboard).
 param set-default NAV_DLL_ACT 0
