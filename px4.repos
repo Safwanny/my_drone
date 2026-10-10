@@ -1,0 +1,12 @@
+# PX4 SITL dependencies, pinned. From ~/ros2_ws/src:
+#   vcs import < my_drone/px4.repos
+# PX4-Autopilot itself is cloned outside the workspace (see README).
+repositories:
+  px4_msgs:
+    type: git
+    url: https://github.com/PX4/px4_msgs.git
+    version: 86d8239e962f6939e05c3737784f60c02fa884db  # release/1.17, matches PX4 v1.17.0
+  Micro-XRCE-DDS-Agent:
+    type: git
+    url: https://github.com/eProsima/Micro-XRCE-DDS-Agent.git
+    version: v2.4.3  # PX4 docs' pin for Jazzy
