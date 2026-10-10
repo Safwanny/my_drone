@@ -5,14 +5,14 @@ xacro, the model spawn, the ROS<->GZ bridge, our flight_controller and RViz.
 The drone spawns disarmed (props still); arrow_teleop arms it on start and
 lands + disarms it on quit, goto.py arms it and flies waypoints.
 
-    ros2 launch my_drone sim.launch.py
-    ros2 launch my_drone sim.launch.py rviz:=false
-    ros2 launch my_drone sim.launch.py controller:=gz   # Gazebo's built-in one
+    ros2 launch my_drone_bringup sim.launch.py
+    ros2 launch my_drone_bringup sim.launch.py rviz:=false
+    ros2 launch my_drone_bringup sim.launch.py controller:=gz   # Gazebo's built-in one
 
 Teleop is NOT launched here: reading the keyboard needs a real TTY, which a
 launch-spawned process does not get. Run it yourself in a second terminal:
 
-    ros2 run my_drone arrow_teleop.py
+    ros2 run my_drone_teleop arrow_teleop
 """
 
 import os
@@ -96,9 +96,10 @@ def kill_stragglers(context, when):
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory("my_drone")
+    pkg = get_package_share_directory("my_drone_bringup")
+    description = get_package_share_directory("my_drone_description")
 
-    drone = "build03"  # names urdf/<drone>.urdf.xacro, the bridge config and the gz model
+    drone = "build03"  # names the description xacro, the bridge config and the gz model
     world = LaunchConfiguration("world")
     use_rviz = LaunchConfiguration("rviz")
     headless = LaunchConfiguration("headless")
@@ -142,7 +143,7 @@ def generate_launch_description():
             [
                 "xacro ",
                 PathJoinSubstitution(
-                    [FindPackageShare("my_drone"), "urdf", [drone, ".urdf.xacro"]]
+                    [FindPackageShare("my_drone_description"), "urdf", [drone, ".urdf.xacro"]]
                 ),
                 " controller:=",
                 controller,
@@ -151,10 +152,11 @@ def generate_launch_description():
         value_type=str,
     )
 
-    # Lets gz resolve package://my_drone/meshes/... (URDF->SDF turns it into
-    # model://my_drone/..., looked up under <install>/share).
+    # Lets gz resolve package://my_drone_description/meshes/... (URDF->SDF
+    # turns it into model://my_drone_description/..., looked up under
+    # <install>/share).
     mesh_path = AppendEnvironmentVariable(
-        "GZ_SIM_RESOURCE_PATH", os.path.dirname(pkg)
+        "GZ_SIM_RESOURCE_PATH", os.path.dirname(description)
     )
 
     # The server runs inside ros_gz_sim's gzserver node rather than the
@@ -214,11 +216,13 @@ def generate_launch_description():
 
     flight_controller = Node(
         condition=IfCondition(PythonExpression(["'", controller, "' == 'custom'"])),
-        package="my_drone",
+        package="my_drone_control",
         executable="flight_controller",
         output="screen",
         parameters=[
-            os.path.join(pkg, "config", "controller.yaml"),
+            PathJoinSubstitution(
+                [FindPackageShare("my_drone_control"), "config", "controller.yaml"]
+            ),
             {"robot_description": robot_description, "use_sim_time": True},
         ],
     )

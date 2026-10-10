@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fly to one or more waypoints with the flight controller's position mode.
 
-    ros2 run my_drone goto.py 0,0,2 3,3,2 -2,1,1,90 0,0,0.3
+    ros2 run my_drone_teleop goto 0,0,2 3,3,2 -2,1,1,90 0,0,0.3
 
 Each waypoint is x,y,z[,yaw_deg] in the odom frame (metres, z up). Without a
 yaw the drone keeps its heading. The script arms the drone, sends each goal

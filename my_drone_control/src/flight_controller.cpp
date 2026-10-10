@@ -2,6 +2,8 @@
 // our own cascade (control.hpp) and drives the MulticopterMotorModel rotors
 // directly through /motor_speed.
 //
+// Topics are relative, so the node can be pushed into a namespace.
+//
 // In:  /enable    std_msgs/Bool                 arm / disarm
 //      /cmd_vel   geometry_msgs/Twist           velocity mode: heading-frame
 //                                               vx vy vz (m/s) + yaw rate
@@ -27,7 +29,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/bool.hpp"
 
-#include "control.hpp"
+#include "my_drone_control/control.hpp"
 
 using fc::Quat;
 using fc::Vec3;
@@ -83,7 +85,7 @@ public:
   FlightController()
   : Node("flight_controller"),
     af_(parse_airframe(declare_parameter<std::string>("robot_description"))),
-    mixer_(af_, declare_parameter("idle_fraction", 0.10))
+    mixer_(af_, ranged("idle_fraction", 0.10, 0.0, 0.5, "armed rotor speed, of max"))
   {
     auto vec = [this](const std::string & name, const std::vector<double> & def) {
         auto v = declare_parameter(name, def);
@@ -103,31 +105,42 @@ public:
     rate_.pid.ki = vec("rate_i", {4.0, 4.0, 2.0});
     rate_.pid.kd = vec("rate_d", {0.05, 0.05, 0.0});
     rate_.pid.i_max = vec("rate_i_max", {2.0, 2.0, 1.0});
-    tilt_max_ = declare_parameter("tilt_max_deg", 35.0) * M_PI / 180.0;
+    tilt_max_ = ranged("tilt_max_deg", 35.0, 5.0, 60.0, "max lean, deg") * M_PI / 180.0;
     // Leave headroom above what the position loops may ask for, so the
     // attitude loop still has differential thrust to work with.
     const double a_full = 4.0 * mixer_.f_max / af_.mass;
-    a_max_ = declare_parameter("thrust_max_fraction", 0.8) * a_full;
-    takeoff_alt_ = declare_parameter("default_goal_alt", 1.5);
-    cmd_timeout_ = declare_parameter("cmd_vel_timeout", 0.5);
-    odom_timeout_ = declare_parameter("odom_timeout", 0.2);
+    a_max_ = ranged("thrust_max_fraction", 0.8, 0.3, 1.0, "of full thrust") * a_full;
+    takeoff_alt_ = ranged("default_goal_alt", 1.5, 0.3, 50.0, "m, z=0 goal before take-off");
+    cmd_timeout_ = ranged("cmd_vel_timeout", 0.5, 0.05, 5.0, "s without cmd_vel -> hold");
+    odom_timeout_ = ranged("odom_timeout", 0.2, 0.02, 2.0, "s without odom -> level descent");
 
     RCLCPP_INFO(get_logger(),
       "airframe %.3f kg, hover %.0f rad/s per rotor, thrust/weight %.1f",
       af_.mass, std::sqrt(af_.mass * fc::kG / 4.0 / af_.motor_constant), a_full / fc::kG);
 
-    motor_pub_ = create_publisher<actuator_msgs::msg::Actuators>("/motor_speed", 10);
-    create_sub<std_msgs::msg::Bool>("/enable", &FlightController::on_enable);
-    create_sub<geometry_msgs::msg::Twist>("/cmd_vel", &FlightController::on_cmd_vel);
-    create_sub<geometry_msgs::msg::PoseStamped>("/goal_pose", &FlightController::on_goal);
-    create_sub<nav_msgs::msg::Odometry>("/odom", &FlightController::on_odom);
+    motor_pub_ = create_publisher<actuator_msgs::msg::Actuators>("motor_speed", 10);
+    create_sub<std_msgs::msg::Bool>("enable", &FlightController::on_enable);
+    create_sub<geometry_msgs::msg::Twist>("cmd_vel", &FlightController::on_cmd_vel);
+    create_sub<geometry_msgs::msg::PoseStamped>("goal_pose", &FlightController::on_goal);
+    create_sub<nav_msgs::msg::Odometry>("odom", &FlightController::on_odom);
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-      "/imu", rclcpp::SensorDataQoS(),
+      "imu", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::Imu::SharedPtr m) {on_imu(*m);});
   }
 
 private:
   enum class Mode { kPosition, kVelocity };
+
+  // Scalar parameter the parameter server range-checks (bad YAML fails at start).
+  double ranged(const std::string & name, double def, double lo, double hi, const char * desc)
+  {
+    rcl_interfaces::msg::ParameterDescriptor d;
+    d.description = desc;
+    d.floating_point_range.resize(1);
+    d.floating_point_range[0].from_value = lo;
+    d.floating_point_range[0].to_value = hi;
+    return declare_parameter(name, def, d);
+  }
 
   template<typename T>
   void create_sub(const std::string & topic, void (FlightController::*cb)(const T &))

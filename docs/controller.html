@@ -50,7 +50,7 @@
 <div class="title">
   <h1>Build 03 Flight Controller</h1>
   <div class="sub">A cascaded multicopter controller for ROS&nbsp;2 and Gazebo, explained</div>
-  <div class="meta">Safwan Shaikh · <code>my_drone</code> 0.3.0</div>
+  <div class="meta">Safwan Shaikh · <code>my_drone</code> 0.4.0</div>
 </div>
 
 <figure>
@@ -165,9 +165,9 @@ collective thrust goes straight from the thrust-vector block to the mixer.</figc
 
 <p>The code is split in two:</p>
 <ul>
-  <li><code>src/control.hpp</code>: the maths, free of ROS and unit tested
-      (<code>test/test_control.cpp</code>).</li>
-  <li><code>src/flight_controller.cpp</code>: ROS input and output, setpoint
+  <li><code>my_drone_control/include/my_drone_control/control.hpp</code>: the maths, free of ROS and unit tested
+      (<code>my_drone_control/test/test_control.cpp</code>).</li>
+  <li><code>my_drone_control/src/flight_controller.cpp</code>: ROS input and output, setpoint
       modes, arming and failsafes.</li>
 </ul>
 <p>Mass, inertia, motor constants and rotor layout are read from a
@@ -557,7 +557,7 @@ Keep each outer loop about 3–5× slower than the loop inside it.</p></div>
 </table>
 
 <p>Changes take effect after <code>colcon build</code> and a relaunch. The unit
-tests (<code>colcon test --packages-select my_drone</code>) check the mixer's
+tests (<code>colcon test --packages-select my_drone_control</code>) check the mixer's
 signs and scale, the attitude error signs and the tilt limit.</p>
 
 <h2 class="nonum">References</h2>

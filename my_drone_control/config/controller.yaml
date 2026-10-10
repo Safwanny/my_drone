@@ -1,6 +1,6 @@
 # Gains and limits for flight_controller, in physical units. The node
-# multiplies by mass / inertia read from the URDF, so one file fits both
-# drones. Vector entries are [x, y, z] (z = yaw for the attitude/rate loops).
+# multiplies by mass / inertia read from the URDF, so gains survive a mass
+# change. Vector entries are [x, y, z] (z = yaw for the attitude/rate loops).
 #
 # Tuning order, inner to outer: rate -> attitude -> velocity -> position.
 # Each outer loop should be ~3-5x slower than the one inside it.
