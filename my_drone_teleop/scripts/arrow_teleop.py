@@ -2,8 +2,7 @@
 """Arrow-key teleop for the drones in this package.
 
 Publishes geometry_msgs/Twist on /cmd_vel in the vehicle's heading frame,
-which the flight stack (flight_controller, or PX4 through offboard_adapter)
-flies as a velocity setpoint:
+which the flight stack (PX4, through offboard_adapter) flies as a velocity setpoint:
 
     linear.x   forward / back velocity   (m/s)
     linear.y   left / right velocity     (m/s)

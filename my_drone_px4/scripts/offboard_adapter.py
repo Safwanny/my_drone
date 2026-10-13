@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Fly PX4 through the same topics as our flight_controller.
+"""Fly PX4 through simple ROS topics (offboard mode over uXRCE-DDS).
 
-goto, arrow_teleop and anything else written against flight_controller
-work unchanged on PX4 (offboard mode over uXRCE-DDS):
+goto, arrow_teleop and anything else written against these topics fly PX4:
 
     /enable    std_msgs/Bool              true: offboard + arm, false: kill
     /land      std_msgs/Empty             PX4 Land mode (disarms on touchdown)
@@ -15,7 +14,7 @@ Frames. ROS side: ENU world frame "odom", body FLU. PX4 side: its NED local
 frame, body FRD. PX4's local frame starts where EKF2 initialised, i.e. where
 the drone sat at boot (the spawn point, origin_* parameters), and PX4 flies
 in it: offboard setpoints are local. So a goal is a point relative to the
-takeoff spot, as for flight_controller, and /odom minus /ground_truth/odom is
+takeoff spot, and /odom minus /ground_truth/odom is
 the error PX4 actually flies with (drift since boot). Its absolute GNSS
 error at boot (ref_lat/lon/alt) is not part of that, as for any offboard
 mission flown in the local frame.
