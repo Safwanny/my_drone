@@ -29,10 +29,9 @@
 
     <gravity>0 0 -9.8066</gravity>
 
-    <!-- Where the world sits on Earth, for GNSS, and the field the
-         magnetometer measures. Both are PX4's default world values (Zurich),
-         so EKF2's magnetic model agrees with the simulated field; change
-         them together. -->
+    <!-- Where the world sits on Earth (Zurich), for GNSS, and the field the
+         magnetometer measures. If you move it, re-measure state_estimator's
+         mag_ref (controller.yaml). -->
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
       <world_frame_orientation>ENU</world_frame_orientation>

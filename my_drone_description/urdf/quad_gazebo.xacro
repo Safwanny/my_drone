@@ -129,11 +129,11 @@
     <!-- ============ Sensors ============
          Names and the default gz topics
          (/world/<world>/model/<model>/link/base_link/sensor/<name>/<type>)
-         are the ones PX4's gz_bridge reads (same as the px4 branch); the
-         ROS bridge maps them to short ROS names, and state_estimator turns
-         them into /odom. Noise is copied from PX4's x500 (x500_base). -->
+         are mapped to short ROS names by the ROS bridge, and
+         state_estimator turns them into /odom. Noise is that of an
+         x500-class flight controller's parts. -->
 
-    <!-- IMU, noise as an IIM42653 (as the x500). Orientation is off: gz
+    <!-- IMU, noise as an IIM42653. Orientation is off: gz
          would fill it with the true attitude. -->
     <gazebo reference="base_link">
       <sensor name="imu_sensor" type="imu">
@@ -185,9 +185,8 @@
       </sensor>
     </gazebo>
 
-    <!-- GNSS, 10 Hz, noise matched to what PX4's gz_bridge adds to the
-         x500's exact fix (its Gauss-Markov model settles at ~2 cm
-         horizontal, ~3 cm vertical, ~0.02 m/s). Horizontal noise is in
+    <!-- GNSS, 10 Hz, an F9P-class receiver: ~2 cm horizontal, ~3 cm
+         vertical, ~0.02 m/s. Horizontal noise is in
          degrees (gz applies it to latitude/longitude): 2e-7 deg ~ 2 cm.
          Needs the world's <spherical_coordinates>. -->
     <gazebo reference="base_link">

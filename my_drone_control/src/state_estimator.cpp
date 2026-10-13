@@ -1,5 +1,5 @@
-// State estimator node: the sensors -> /odom, for flight_controller. Plays
-// the part PX4's EKF2 plays on the px4 branch; the filter is estimator.hpp.
+// State estimator node: the sensors -> /odom, for flight_controller. The
+// filter is estimator.hpp.
 //
 // In:  /imu            sensor_msgs/Imu            predicts (each sample)
 //      /navsat         sensor_msgs/NavSatFix      position

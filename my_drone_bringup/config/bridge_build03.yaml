@@ -25,7 +25,7 @@
   gz_type_name: "gz.msgs.Actuators"
   direction: ROS_TO_GZ
 
-# Sensors, from their default gz topics (the names PX4 also reads).
+# Sensors, from their default gz topics.
 - ros_topic_name: "/imu"
   gz_topic_name: "/world/empty_flight/model/build03/link/base_link/sensor/imu_sensor/imu"
   ros_type_name: "sensor_msgs/msg/Imu"
