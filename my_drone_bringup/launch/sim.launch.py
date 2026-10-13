@@ -1,17 +1,15 @@
 """Launch Build 03 in Gazebo Harmonic, bridged to ROS 2.
 
 Brings up gz sim with the flight world, robot_state_publisher fed from the
-xacro, the model spawn, the ROS<->GZ bridge, the flight stack and RViz. The
-flight stack is our flight_controller (controller:=custom) or PX4 SITL with
-the uXRCE-DDS agent and our offboard adapter (controller:=px4); either way
-it is flown through the same topics (/enable, /land, /goal_pose, /cmd_vel,
-/odom, /armed). The drone spawns disarmed (props still); arrow_teleop arms
+xacro, the model spawn, the ROS<->GZ bridge, PX4 SITL with the uXRCE-DDS
+agent and our offboard adapter, and RViz. PX4 is flown through simple ROS
+topics (/enable, /land, /goal_pose, /cmd_vel, /odom, /armed) by the
+adapter. The drone spawns disarmed (props still); arrow_teleop arms
 it on start and lands + disarms it on quit, goto arms it and flies
 waypoints.
 
     ros2 launch my_drone_bringup sim.launch.py
     ros2 launch my_drone_bringup sim.launch.py rviz:=false
-    ros2 launch my_drone_bringup sim.launch.py controller:=px4  # PX4 SITL (~/PX4-Autopilot)
 
 Teleop is NOT launched here: reading the keyboard needs a real TTY, which a
 launch-spawned process does not get. Run it yourself in a second terminal:
@@ -45,7 +43,6 @@ from launch.substitutions import (
     Command,
     LaunchConfiguration,
     PathJoinSubstitution,
-    PythonExpression,
 )
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
@@ -117,12 +114,10 @@ def px4_build():
 
 
 def check_px4(context):
-    """With controller:=px4, fail before anything starts if a piece is missing.
+    """Fail before anything starts if a PX4 piece is missing.
 
     Otherwise launch dies halfway and leaves gz running.
     """
-    if LaunchConfiguration("controller").perform(context) != "px4":
-        return []
     missing = []
     try:
         get_package_share_directory("my_drone_px4")
@@ -134,7 +129,7 @@ def check_px4(context):
         missing.append(f"PX4 SITL build in {px4_build()} (or set PX4_DIR)")
     if missing:
         raise RuntimeError(
-            "controller:=px4 needs: " + "; ".join(missing) + ". Build them (README, "
+            "PX4 SITL needs: " + "; ".join(missing) + ". Build them (README, "
             "PX4 SITL), then `source ~/ros2_ws/install/setup.bash` in this terminal.")
     return []
 
@@ -175,18 +170,8 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration("rviz")
     headless = LaunchConfiguration("headless")
     spawn_z = LaunchConfiguration("z")
-    controller = LaunchConfiguration("controller")
 
     args = [
-        DeclareLaunchArgument(
-            "controller",
-            default_value="custom",
-            choices=["custom", "px4"],
-            description="custom: our flight_controller node (position, "
-            "velocity, attitude, rate, mixer) on the exact state. "
-            "px4: PX4 SITL (EKF2 on the simulated sensors, then its own "
-            "cascade), attached to the spawned model.",
-        ),
         DeclareLaunchArgument(
             "world",
             default_value=os.path.join(pkg, "worlds", "empty_flight.sdf"),
@@ -284,51 +269,19 @@ def generate_launch_description():
         ],
     )
 
-    is_custom = IfCondition(PythonExpression(["'", controller, "' == 'custom'"]))
-    is_px4 = IfCondition(PythonExpression(["'", controller, "' == 'px4'"]))
-
-    # Our controller flies on the exact state: bridge gz's odometry to /odom
-    # too (with PX4, /odom is EKF2's estimate, from the offboard adapter).
-    truth_odom = Node(
-        condition=is_custom,
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        name="truth_odom_bridge",
-        arguments=[f"/model/{drone}/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry"],
-        remappings=[(f"/model/{drone}/odometry", "/odom")],
-        parameters=[{"use_sim_time": True}],
-        output="screen",
-    )
-
-    flight_controller = Node(
-        condition=is_custom,
-        package="my_drone_control",
-        executable="flight_controller",
-        output="screen",
-        parameters=[
-            PathJoinSubstitution(
-                [FindPackageShare("my_drone_control"), "config", "controller.yaml"]
-            ),
-            {"robot_description": robot_description, "use_sim_time": True},
-        ],
-    )
-
     # PX4 SITL, attached to the model spawned above (standalone: it neither
     # starts gz nor spawns its own model). Started once the spawner has
     # exited, so the model exists when PX4's gz_bridge looks for it.
     px4 = RegisterEventHandler(
         OnProcessExit(target_action=spawn, on_exit=[OpaqueFunction(function=start_px4)]),
-        condition=is_px4,
     )
 
     # PX4's uORB topics <-> ROS 2 (/fmu/...), and our topics -> PX4 offboard.
     dds_agent = ExecuteProcess(
-        condition=is_px4,
         cmd=["MicroXRCEAgent", "udp4", "-p", "8888"],
         output="log",
     )
     offboard_adapter = Node(
-        condition=is_px4,
         package="my_drone_px4",
         executable="offboard_adapter",
         parameters=[{"use_sim_time": True}],
@@ -358,6 +311,5 @@ def generate_launch_description():
         args
         + [OpaqueFunction(function=check_px4), clean_start, tag, clean_exit, mesh_path]
         + [gz_server, gz_gui, robot_state_publisher, bridge, spawn,
-           truth_odom, flight_controller, px4, dds_agent,
-           offboard_adapter, rviz]
+           px4, dds_agent, offboard_adapter, rviz]
     )

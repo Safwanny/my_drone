@@ -7,7 +7,7 @@
   <license>Apache-2.0</license>
   <description>
     PX4 side of the Build 03 Prototype: its SITL airframe and an offboard
-    adapter that flies PX4 through the same topics as our flight_controller.
+    adapter that flies PX4 through simple ROS topics.
   </description>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
