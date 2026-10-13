@@ -124,12 +124,13 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 The controller flies on what the sensors say, not on Gazebo's exact state.
 `my_drone_control/src/state_estimator.cpp` (ROS I/O, start-up) around
 `my_drone_control/include/my_drone_control/estimator.hpp` (the filter, no
-ROS) is a 15-state error-state EKF in the shape of PX4's EKF2: the IMU
+ROS) is a 15-state error-state EKF, the usual multicopter design: the IMU
 predicts position, velocity and attitude (and its own biases), GNSS
 position, barometer height and the magnetometer's direction correct them.
 
-Sensor noise is PX4's x500: Gaussian IMU, barometer (3 Pa) and
-magnetometer noise, and GNSS at the ~2 cm PX4 adds to the x500's fix. The
+Sensor noise is that of an x500-class flight controller: Gaussian IMU
+(IIM42653), barometer (BMP390, 3 Pa) and magnetometer (IIS2MDC) noise, and
+an F9P-class GNSS (~2 cm). The
 filter starts once the drone has sat still for 1 s; that spot (`origin` in
 `controller.yaml`) is the odom origin, so `/odom` minus `/ground_truth/odom`
 is the estimation error. On a hover / move / 90 deg yaw route it is ~2 cm

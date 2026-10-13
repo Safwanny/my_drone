@@ -1,5 +1,5 @@
-// State estimator: an error-state EKF in the shape of PX4's EKF2, free of
-// ROS so it can be unit tested.
+// State estimator: an error-state EKF (the usual multicopter design), free
+// of ROS so it can be unit tested.
 //
 //   predict: IMU (specific force + body rates) at its own rate
 //   correct: GNSS position, barometer height, magnetometer direction
@@ -37,7 +37,7 @@ public:
   using Mat15 = Eigen::Matrix<double, 15, 15>;
   using Vec15 = Eigen::Matrix<double, 15, 1>;
 
-  // Process noise densities (per sqrt(s)). Above the x500 IMU's datasheet
+  // Process noise densities (per sqrt(s)). Above the IMU's datasheet
   // noise on purpose: they also cover what the model leaves out.
   struct Noise {
     double acc = 0.05;         // m/s^2
