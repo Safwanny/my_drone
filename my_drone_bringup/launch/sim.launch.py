@@ -231,6 +231,20 @@ def generate_launch_description():
         ],
     )
 
+    # Sensors -> /odom, in both controller modes (gz's exact state is only
+    # on /ground_truth/odom).
+    state_estimator = Node(
+        package="my_drone_control",
+        executable="state_estimator",
+        output="screen",
+        parameters=[
+            PathJoinSubstitution(
+                [FindPackageShare("my_drone_control"), "config", "controller.yaml"]
+            ),
+            {"use_sim_time": True},
+        ],
+    )
+
     rviz = Node(
         condition=IfCondition(use_rviz),
         package="rviz2",
@@ -254,5 +268,5 @@ def generate_launch_description():
         args
         + [clean_start, tag, clean_exit, mesh_path]
         + [gz_server, gz_gui, robot_state_publisher, bridge, spawn,
-           flight_controller, rviz]
+           state_estimator, flight_controller, rviz]
     )

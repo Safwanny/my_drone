@@ -39,3 +39,21 @@ flight_controller:
     land_slow_alt: 0.6              # m, touchdown is only detected below this
     cmd_vel_timeout: 0.5            # s without /cmd_vel -> hold position
     odom_timeout: 0.2               # s without /odom -> level descent
+
+# state_estimator: sensors -> /odom (estimator.hpp). Noise in sensor units.
+state_estimator:
+  ros__parameters:
+    origin: [0.0, 0.0, 0.0493]      # m, odom position at start (spawn point, at rest)
+    # Field the magnetometer reads at yaw 0, level (gz's Zurich field, in
+    # its own axes and gauss). Only the direction matters.
+    mag_ref: [0.2162, 0.0095, 0.4295]
+    gnss_noise_xy: 0.1              # m
+    gnss_noise_z: 0.3               # m
+    baro_noise: 0.3                 # m
+    mag_noise: 0.05                 # of the unit field vector
+    acc_noise: 0.05                 # m/s^2/sqrt(Hz), process noise
+    gyro_noise: 0.005               # rad/s/sqrt(Hz)
+    acc_bias_noise: 0.001           # m/s^3/sqrt(Hz)
+    gyro_bias_noise: 0.0001         # rad/s^2/sqrt(Hz)
+    gate: 5.0                       # innovation gate, standard deviations
+    publish_rate: 50.0              # Hz
