@@ -78,11 +78,11 @@
          Names and the default gz topics
          (/world/<world>/model/<model>/link/base_link/sensor/<name>/<type>)
          are what PX4's gz_bridge subscribes to; the ROS bridge maps them to
-         short ROS names. GNSS and barometer are exact here and get their
-         errors from sensor_realism.py. -->
+         short ROS names. Noise is copied from PX4's x500 (x500_base), so
+         sim sensors are as clean as the stock PX4 drone's. -->
 
-    <!-- IMU, modelled on the MPU-6050. Orientation is off: gz would fill it
-         with the true attitude. -->
+    <!-- IMU, noise as an IIM42653 (as the x500). Orientation is off: gz
+         would fill it with the true attitude. -->
     <gazebo reference="base_link">
       <sensor name="imu_sensor" type="imu">
         <always_on>1</always_on>
@@ -90,33 +90,31 @@
         <gz_frame_id>base_link</gz_frame_id>
         <imu>
           <enable_orientation>false</enable_orientation>
+          <!-- 0.05 deg/s -->
           <angular_velocity>
-            <x><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev>
-               <bias_mean>0.00075</bias_mean><bias_stddev>0.005</bias_stddev></noise></x>
-            <y><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev>
-               <bias_mean>0.00075</bias_mean><bias_stddev>0.005</bias_stddev></noise></y>
-            <z><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev>
-               <bias_mean>0.00075</bias_mean><bias_stddev>0.005</bias_stddev></noise></z>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.0008726646</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.0008726646</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.0008726646</stddev></noise></z>
           </angular_velocity>
+          <!-- 0.65 mg x/y, 0.70 mg z -->
           <linear_acceleration>
-            <x><noise type="gaussian"><mean>0</mean><stddev>0.021</stddev>
-               <bias_mean>0.05</bias_mean><bias_stddev>0.0075</bias_stddev></noise></x>
-            <y><noise type="gaussian"><mean>0</mean><stddev>0.021</stddev>
-               <bias_mean>0.05</bias_mean><bias_stddev>0.0075</bias_stddev></noise></y>
-            <z><noise type="gaussian"><mean>0</mean><stddev>0.021</stddev>
-               <bias_mean>0.05</bias_mean><bias_stddev>0.0075</bias_stddev></noise></z>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.00637</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.00637</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.00686</stddev></noise></z>
           </linear_acceleration>
         </imu>
       </sensor>
     </gazebo>
 
-    <!-- Barometer: exact. sensor_realism.py adds the noise and drift and
-         republishes as air_pressure_sensor, the name PX4 reads. -->
+    <!-- Barometer, noise as a BMP390 (Pa). -->
     <gazebo reference="base_link">
-      <sensor name="air_pressure_truth" type="air_pressure">
+      <sensor name="air_pressure_sensor" type="air_pressure">
         <always_on>1</always_on>
         <update_rate>50</update_rate>
         <gz_frame_id>base_link</gz_frame_id>
+        <air_pressure>
+          <pressure><noise type="gaussian"><mean>0</mean><stddev>3</stddev></noise></pressure>
+        </air_pressure>
       </sensor>
     </gazebo>
 
@@ -135,13 +133,11 @@
       </sensor>
     </gazebo>
 
-    <!-- GNSS: exact, 10 Hz. sensor_realism.py adds an M10-class error
-         (slow wander, white noise, 110 ms delay) and republishes as
-         navsat_sensor, the name PX4 reads. gz's own noise can't do this:
-         its slow bias never evolves for navsat. Needs the world's
+    <!-- GNSS, 10 Hz, exact here as on the x500: PX4's gz_bridge adds its
+         own F9P-class noise. So /navsat in ROS is exact. Needs the world's
          <spherical_coordinates>. -->
     <gazebo reference="base_link">
-      <sensor name="navsat_truth" type="navsat">
+      <sensor name="navsat_sensor" type="navsat">
         <always_on>1</always_on>
         <update_rate>10</update_rate>
         <gz_frame_id>base_link</gz_frame_id>

@@ -44,16 +44,11 @@ ros2 launch my_drone_bringup sim.launch.py
 
 Options: `rviz:=false`, `headless:=true` (no Gazebo window), `z:=0.5`
 (spawn height), `controller:=px4` (PX4 SITL instead of our controller,
-see below), `seed:=N` (repeatable GNSS / barometer errors).
+see below).
 
-GNSS and barometer errors come from `sensor_realism.py`, not gz: gz's
-noise is white only (its slow bias never evolves for these sensors) and it
-cannot delay a sensor, which made EKF2 look better than on hardware. The
-model's exact `navsat_truth` / `air_pressure_truth` readings get an
-M10-class GNSS error (1.27 m per horizontal axis, 2 m vertical, slowly
-wandering with a 120 s time constant, plus white noise and a 110 ms delay)
-and a barometer drift (~0.5 m, 300 s) plus 3 Pa noise, and are republished
-under the names PX4 and the ROS bridge read.
+Sensor noise is copied from PX4's stock x500: Gaussian IMU, barometer and
+magnetometer noise in gz, and an exact GNSS that PX4's gz_bridge adds its
+own (F9P-class) noise to.
 
 Fly, in a second terminal (needs a real keyboard/TTY):
 
@@ -123,9 +118,9 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 | `/odom` | `nav_msgs/Odometry` (state the flight stack flies on: exact for ours, EKF2's with PX4) | out |
 | `/ground_truth/odom` | `nav_msgs/Odometry` (exact state, for scoring only) | out |
 | `/imu` | `sensor_msgs/Imu` (250 Hz; no orientation) | out |
-| `/air_pressure` | `sensor_msgs/FluidPressure` (50 Hz; drift + noise from `sensor_realism`) | out |
+| `/air_pressure` | `sensor_msgs/FluidPressure` (50 Hz; 3 Pa noise) | out |
 | `/magnetic_field` | `sensor_msgs/MagneticField` (100 Hz, gauss: a gz Harmonic quirk) | out |
-| `/navsat` | `sensor_msgs/NavSatFix` (10 Hz; M10-class error + 110 ms delay from `sensor_realism`) | out |
+| `/navsat` | `sensor_msgs/NavSatFix` (10 Hz; exact, PX4 adds its own noise) | out |
 | `/joint_states` | `sensor_msgs/JointState` (prop angles) | out |
 | `/tf`, `/clock` | | out |
 
@@ -197,21 +192,9 @@ Differences to expect from our controller: PX4 ramps its takeoff in over
 a few seconds, and if it leaves offboard on its own (Land, a failsafe) the
 adapter stops sending setpoints until a new goal or `/cmd_vel` arrives.
 
-EKF2 settings in the airframe, from a same-seed A/B (`seed:=1`, hover,
-climb, move, land; error of `/odom` against `/ground_truth/odom`):
-
-| Height fusion | Horizontal RMS / max | Height RMS / max (flight) |
-|---|---|---|
-| GNSS as reference (PX4 default) | 1.5-2.5 m | up to 5 m |
-| **Barometer reference, GNSS altitude as aid (used)** | 1.28 / 2.0 m | 0.54 / 1.17 m |
-| Barometer only, no GNSS altitude | 1.33 / 2.0 m | 1.19 / 1.39 m |
-
-`EKF2_GND_EFF_DZ` is 0 because the sim has no ground effect (the default
-4 m dead zone made the height sink ~1 m at every touchdown). The remaining
-horizontal error is the GNSS error itself (a slowly wandering ~1.3 m per
-axis, M10 class): EKF2 cannot tell it from motion, so RViz's odometry
-arrows sit 1-2 m from the model. Only a better absolute sensor (RTK GNSS)
-removes it.
+`EKF2_GND_EFF_DZ` is 0 in the airframe because the sim has no ground
+effect (the default 4 m dead zone made the height sink ~1 m at every
+touchdown). Everything else in EKF2 is PX4's default, as on the x500.
 
 PX4's console commands, from a second terminal with ROS sourced:
 

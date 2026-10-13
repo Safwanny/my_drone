@@ -201,12 +201,6 @@ def generate_launch_description():
             description="No Gazebo window (server only). Useful for tests.",
         ),
         DeclareLaunchArgument(
-            "seed",
-            default_value="",
-            description="Seed for the GNSS/barometer errors (sensor_realism), "
-            "for repeatable runs. Empty: random.",
-        ),
-        DeclareLaunchArgument(
             "z",
             default_value="0.2",
             description="Spawn height, so the landing gear clears the ground.",
@@ -341,14 +335,6 @@ def generate_launch_description():
         output="screen",
     )
 
-    # GNSS and barometer errors (gz's own noise can't drift or delay). Its
-    # output is what PX4 and the ROS bridge read as navsat / air_pressure.
-    sensor_realism = OpaqueFunction(function=lambda context: [ExecuteProcess(
-        cmd=["ros2", "run", "my_drone_bringup", "sensor_realism.py", "--model", drone]
-        + (["--seed", s] if (s := LaunchConfiguration("seed").perform(context)) else []),
-        output="screen",
-    )])
-
     rviz = Node(
         condition=IfCondition(use_rviz),
         package="rviz2",
@@ -372,6 +358,6 @@ def generate_launch_description():
         args
         + [OpaqueFunction(function=check_px4), clean_start, tag, clean_exit, mesh_path]
         + [gz_server, gz_gui, robot_state_publisher, bridge, spawn,
-           sensor_realism, truth_odom, flight_controller, px4, dds_agent,
+           truth_odom, flight_controller, px4, dds_agent,
            offboard_adapter, rviz]
     )
