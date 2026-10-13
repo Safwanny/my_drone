@@ -110,10 +110,30 @@ Saved views: *Follow drone* (default), *World (fixed)*, *Top down*.
 | `/land` | `std_msgs/Empty` (descend, disarm on touchdown) | in |
 | `/armed` | `std_msgs/Bool` (latched, on change) | out |
 | `/motor_speed` | `actuator_msgs/Actuators` (rotor speeds, rad/s) | controller → gz |
-| `/odom` | `nav_msgs/Odometry` | out |
-| `/imu` | `sensor_msgs/Imu` | out |
+| `/odom` | `nav_msgs/Odometry` (state_estimator's estimate, 50 Hz) | out |
+| `/ground_truth/odom` | `nav_msgs/Odometry` (gz's exact state, for scoring only) | out |
+| `/imu` | `sensor_msgs/Imu` (250 Hz; no orientation) | out |
+| `/air_pressure` | `sensor_msgs/FluidPressure` (50 Hz) | out |
+| `/magnetic_field` | `sensor_msgs/MagneticField` (100 Hz, gauss: a gz Harmonic quirk) | out |
+| `/navsat` | `sensor_msgs/NavSatFix` (10 Hz) | out |
 | `/joint_states` | `sensor_msgs/JointState` (prop angles) | out |
 | `/tf`, `/clock` | | out |
+
+## State estimator
+
+The controller flies on what the sensors say, not on Gazebo's exact state.
+`my_drone_control/src/state_estimator.cpp` (ROS I/O, start-up) around
+`my_drone_control/include/my_drone_control/estimator.hpp` (the filter, no
+ROS) is a 15-state error-state EKF in the shape of PX4's EKF2: the IMU
+predicts position, velocity and attitude (and its own biases), GNSS
+position, barometer height and the magnetometer's direction correct them.
+
+Sensor noise is PX4's x500: Gaussian IMU, barometer (3 Pa) and
+magnetometer noise, and GNSS at the ~2 cm PX4 adds to the x500's fix. The
+filter starts once the drone has sat still for 1 s; that spot (`origin` in
+`controller.yaml`) is the odom origin, so `/odom` minus `/ground_truth/odom`
+is the estimation error. On a hover / move / 90 deg yaw route it is ~2 cm
+horizontal and ~4 cm vertical RMS, ~0.25 deg in attitude.
 
 ## Flight controller
 
@@ -129,7 +149,7 @@ use, in physical units:
 
 - Each `/imu` sample (250 Hz) runs the loop, like a real FC's gyro. `/odom`
   (50 Hz) is the state estimate; attitude is propagated with the gyro in
-  between. Swap `/odom` for an EKF later and nothing else changes.
+  between.
 - Modes: the last input wins. `/goal_pose` gives position mode, `/cmd_vel`
   gives velocity mode. Centre the stick (or stop sending) and it brakes, then
   holds position.
@@ -157,16 +177,19 @@ tests without Gazebo, and the description can be reused on hardware.
 ```
 my_drone_description/   the model, no runtime deps beyond xacro
   urdf/quad_mesh_common.xacro  motor/prop physics + spinning prop macros
-  urdf/quad_gazebo.xacro       gz plugins: motor models, IMU, odom; <quad_physics>
+  urdf/quad_gazebo.xacro       gz plugins: motor models, sensors, exact odom; <quad_physics>
                                for our controller; gz velocity controller if controller:=gz
   urdf/build03_params.xacro    mass, inertia, rotor positions (gz controller gains)
   urdf/build03.urdf.xacro      frame meshes + collision boxes
   meshes/                      STLs (mm) copied from the CAD folders
-my_drone_control/       flight controller (C++)
+my_drone_control/       flight controller and state estimator (C++)
   include/my_drone_control/control.hpp   the cascade maths, ROS-free, header-only
+  include/my_drone_control/estimator.hpp the EKF, ROS-free, header-only
   src/flight_controller.cpp              node: topics, modes, failsafes
-  config/controller.yaml                 gains and limits
+  src/state_estimator.cpp                node: sensors -> /odom
+  config/controller.yaml                 gains, limits, estimator noise
   test/test_control.cpp                  gtest sign/scale checks
+  test/test_estimator.cpp                gtest EKF convergence checks
 my_drone_teleop/        operator tools (Python): arrow_teleop, goto
 my_drone_bringup/       simulation: launch/sim.launch.py, worlds/,
                         config/bridge_build03.yaml (ROS <-> gz), rviz/

@@ -32,15 +32,21 @@ target_link_libraries(flight_controller control tinyxml2::tinyxml2)
 ament_target_dependencies(flight_controller
   rclcpp actuator_msgs geometry_msgs nav_msgs sensor_msgs std_msgs)
 
+add_executable(state_estimator src/state_estimator.cpp)
+target_link_libraries(state_estimator control)
+ament_target_dependencies(state_estimator rclcpp nav_msgs sensor_msgs)
+
 install(TARGETS control EXPORT export_${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
-install(TARGETS flight_controller DESTINATION lib/${PROJECT_NAME})
+install(TARGETS flight_controller state_estimator DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_control test/test_control.cpp)
   target_link_libraries(test_control control)
+  ament_add_gtest(test_estimator test/test_estimator.cpp)
+  target_link_libraries(test_estimator control)
 endif()
 
 ament_export_targets(export_${PROJECT_NAME})
